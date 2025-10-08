@@ -59,10 +59,27 @@ class MyBot(ActivityHandler):
                 state["awaiting_confirmation"] = False
                 return
 
-        # Try to extract slots from the user text
+        # First try to query LUIS for intents/entities
+        try:
+            from mytravel.luis_client import query_luis
+            from mytravel.config import DefaultConfig
+
+            cfg = DefaultConfig()
+            luis_result = query_luis(text, app_id=cfg.LUIS_APP_ID, key=cfg.LUIS_PREDICTION_KEY, endpoint=cfg.LUIS_ENDPOINT)
+            if luis_result and not luis_result.get("error"):
+                entities = luis_result.get("entities", {})
+                # Merge recognized entities into state
+                for slot in ("from", "to", "depart", "return", "budget"):
+                    if entities.get(slot):
+                        state[slot] = entities.get(slot)
+        except Exception:
+            # If LUIS fails for any reason, fall back to rule-based extraction
+            pass
+
+        # Fall back to rule-based extraction for anything still missing
         extracted = self._extract_slots(text)
         for k, v in extracted.items():
-            if v:
+            if v and not state.get(k):
                 state[k] = v
 
         missing = [k for k in ("from", "to", "depart", "return", "budget") if not state.get(k)]
