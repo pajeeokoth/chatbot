@@ -112,6 +112,72 @@ def main():
     print("Publish response:", resp)
     print("Done. Your app is published and you can find the app id above.")
 
+    # Persist app id and endpoint to a .env file for convenience (do not overwrite existing env vars)
+    try:
+        env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
+        endpoint_url = resp.get('endpointUrl') or resp.get('endpoint') or ''
+        lines = []
+        if os.path.exists(env_path):
+            with open(env_path, 'r', encoding='utf-8') as f:
+                lines = f.read().splitlines()
+
+        def set_env(lines, key, value):
+            key_eq = key + '='
+            for i, l in enumerate(lines):
+                if l.startswith(key_eq):
+                    lines[i] = f"{key}={value}"
+                    return lines
+            lines.append(f"{key}={value}")
+            return lines
+
+        # Add app id and endpoint, keep the authoring/prediction key unchanged (we can't safely store keys here)
+        lines = set_env(lines, 'LUIS_APP_ID', app_id)
+        if endpoint_url:
+            lines = set_env(lines, 'LUIS_ENDPOINT', endpoint_url)
+
+        with open(env_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines) + '\n')
+
+        print(f"Wrote LUIS_APP_ID and LUIS_ENDPOINT to {env_path}. Add LUIS_PREDICTION_KEY to .env if needed.")
+    except Exception as e:
+        print('Failed to write .env file:', e)
+    # Also call the helper writer to update .env or config_local.py (safe, creates backups)
+    try:
+        from scripts.write_luis_config import write_config
+        endpoint_url = resp.get('endpointUrl') or resp.get('endpoint') or ''
+        written = write_config(app_id, endpoint_url or '', prediction_key=None, target='env')
+        print('Persisted app info using write_luis_config ->', written)
+    except Exception as e:
+        print('Warning: failed to persist config via write_luis_config:', e)
+    # Prompt user to optionally provide the prediction key and decide whether to save it
+    try:
+        import getpass
+        save_pred = None
+        try:
+            pred_key = os.environ.get('LUIS_PREDICTION_KEY')
+            if not pred_key:
+                pred_key = getpass.getpass('Enter LUIS PREDICTION KEY (input hidden, leave empty to skip): ')
+            else:
+                print('LUIS_PREDICTION_KEY already present in environment; skipping prompt.')
+
+            if pred_key:
+                while save_pred not in ('y', 'n'):
+                    save_pred = input('Save LUIS_PREDICTION_KEY to .env? (y/n): ').strip().lower()
+                if save_pred == 'y':
+                    try:
+                        from scripts.write_luis_config import write_config
+                        written2 = write_config(app_id, endpoint_url or '', prediction_key=pred_key, target='env')
+                        print('Saved prediction key to', written2)
+                    except Exception as e:
+                        print('Failed to persist prediction key:', e)
+                else:
+                    print('Did not save prediction key to disk. Keep it in environment or add to .env manually.')
+        except Exception:
+            print('Skipping prediction key prompt (non-interactive shell)')
+    except Exception:
+        # getpass may not be available in some restricted environments; ignore
+        pass
+
 
 if __name__ == '__main__':
     main()
