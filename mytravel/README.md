@@ -1,42 +1,50 @@
-# echo_bot
+# MyTravel Bot (aiohttp + Microsoft Bot Builder SDK for Python)
 
-A bot that echoes back user response
+This is a minimal messaging web application using aiohttp and the Microsoft Bot Builder SDK (Python).
 
-This bot has been created using [Bot Framework](https://dev.botframework.com), it shows how to create a simple bot that accepts input from the user and echoes it back.
+Files:
+- `app.py` - aiohttp app exposing `/api/messages` for Bot Framework requests.
+- `bot.py` - `TravelBot` implementing `ActivityHandler` with optional LUIS integration.
+- `requirements.txt` - Python dependencies.
 
-## Prerequisites
+LUIS integration:
 
-This sample **requires** prerequisites in order to run.
+- `LUIS_APP_ID` - your LUIS application ID
+- `LUIS_API_KEY` - your LUIS prediction key
+- `LUIS_API_HOST_NAME` - the host name for the LUIS prediction endpoint, e.g. `your-resource-name.cognitiveservices.azure.com` or `<region>.api.cognitive.microsoft.com`
 
-### Install Python 3.6
+If these environment variables are set, the bot will call LUIS for each incoming message and return a JSON response containing the top intent and detected entities. If they are not set the bot falls back to a simple echo behavior.
 
-## Running the sample
-- Run `pip install -r requirements.txt` to install all dependencies
-- Run `python app.py`
+Quick start:
+1. Create a virtualenv and install dependencies:
 
+```bash
+python -m venv venv
+source venv/Scripts/activate  # Windows Git-bash: source venv/Scripts/activate
+python -m pip install -r mytravel/requirements.txt
+```
 
-## Testing the bot using Bot Framework Emulator
+2. Set credentials (for Bot Framework channel) or leave blank for local testing:
 
-[Bot Framework Emulator](https://github.com/microsoft/botframework-emulator) is a desktop application that allows bot developers to test and debug their bots on localhost or running remotely through a tunnel.
+```bash
+export MICROSOFT_APP_ID=""
+export MICROSOFT_APP_PASSWORD=""
 
-- Install the Bot Framework Emulator version 4.3.0 or greater from [here](https://github.com/Microsoft/BotFramework-Emulator/releases)
+# LUIS env vars (optional)
+export LUIS_APP_ID=""
+export LUIS_API_KEY=""
+export LUIS_API_HOST_NAME=""
+```
 
-### Connect to the bot using Bot Framework Emulator
+3. Run the app (aiohttp):
 
-- Launch Bot Framework Emulator
-- Enter a Bot URL of `http://localhost:3978/api/messages`
+```bash
+python mytravel/app.py
+```
 
+4. Use the Bot Framework Emulator to connect to:
+   - URL: http://localhost:3978/api/messages
+   - Microsoft App ID/Password: (leave blank if not set)
 
-## Further reading
-
-- [Bot Framework Documentation](https://docs.botframework.com)
-- [Bot Basics](https://docs.microsoft.com/azure/bot-service/bot-builder-basics?view=azure-bot-service-4.0)
-- [Dialogs](https://docs.microsoft.com/azure/bot-service/bot-builder-concept-dialog?view=azure-bot-service-4.0)
-- [Gathering Input Using Prompts](https://docs.microsoft.com/azure/bot-service/bot-builder-prompts?view=azure-bot-service-4.0&tabs=csharp)
-- [Activity processing](https://docs.microsoft.com/en-us/azure/bot-service/bot-builder-concept-activity-processing?view=azure-bot-service-4.0)
-- [Azure Bot Service Introduction](https://docs.microsoft.com/azure/bot-service/bot-service-overview-introduction?view=azure-bot-service-4.0)
-- [Azure Bot Service Documentation](https://docs.microsoft.com/azure/bot-service/?view=azure-bot-service-4.0)
-- [Azure CLI](https://docs.microsoft.com/cli/azure/?view=azure-cli-latest)
-- [Azure Portal](https://portal.azure.com)
-- [Language Understanding using LUIS](https://docs.microsoft.com/azure/cognitive-services/luis/)
-- [Channels and Bot Connector Service](https://docs.microsoft.com/azure/bot-service/bot-concepts?view=azure-bot-service-4.0)
+Notes:
+- This is a minimal example. For production, use proper error handling, HTTPS, and configure channels in Azure Bot Service.
