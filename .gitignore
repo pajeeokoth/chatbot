@@ -1,3 +1,6 @@
+# Ignore local environment files (secrets)
+.env
+mytravel/.env
 # Python
 __pycache__/
 *.py[cod]
@@ -12,3 +15,4 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+node_modules

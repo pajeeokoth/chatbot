@@ -1,8 +1,11 @@
 import os
-import json
-import asyncio
 
 from aiohttp import web
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from the .env file located alongside this script
+load_dotenv(Path(__file__).with_name(".env"))
 
 # Try to import BotBuilder and the bot. If packages are missing, the server will still
 # run but the `/api/messages` endpoint will return 503 with an explanatory message.
@@ -52,7 +55,8 @@ async def messages(req: web.Request) -> web.Response:
 
     try:
         await adapter.process_activity(activity, auth_header, aux_func)
-        return web.Response(status=201)
+        # Return 200 OK to align with Bot Framework Emulator expectations
+        return web.Response(status=200)
     except Exception as e:
         return web.Response(text=str(e), status=500)
 
@@ -66,21 +70,32 @@ async def options_messages(req: web.Request) -> web.Response:
     }
     return web.Response(status=200, headers=headers)
 
+async def serve_index(req: web.Request) -> web.Response:
+    """Serve static index.html from /static as the landing page.
+    Falls back to a simple text message if the file is missing.
+    """
+    static_index = Path(__file__).parent / "static" / "index.html"
+    if static_index.exists():
+        return web.FileResponse(path=str(static_index))
+    return web.Response(text="MyTravel bot is running. POST to /api/messages with a Bot Framework Activity.")
 
+# Redefine health with a minimal, plain-text response (remove old HTML block)
 async def health(req: web.Request) -> web.Response:
     return web.Response(text="MyTravel bot is running. POST to /api/messages with a Bot Framework Activity.")
 
-
-def main() -> None:
-    # Default to 3978 which is the Bot Framework emulator default port
-    port = int(os.getenv("PORT", 3978))
-    app = web.Application()
-    # health check and CORS preflight support
-    app.router.add_get("/", health)
-    app.router.add_post("/api/messages", messages)
-    app.router.add_options("/api/messages", options_messages)
-    web.run_app(app, host="0.0.0.0", port=port)
-
-
+# A GET handler for /api/messages that returns a friendly message instead of 405.
+async def messages_info(request: web.Request) -> web.Response:
+    return web.Response(
+        text="POST Bot Framework Activities to this endpoint: /api/messages",
+        content_type="text/plain",
+        status=200,
+    )
+app = web.Application()
+app.router.add_post("/api/messages", messages)
+app.router.add_options("/api/messages", options_messages)
+app.router.add_get("/api/messages", messages_info)
+app.router.add_get("/health", health)
+app.router.add_get("/", serve_index)
 if __name__ == "__main__":
-    main()
+    web.run_app(app, host="0.0.0.0", port=3978)
+

@@ -1,11 +1,13 @@
 import os
 import json
 from typing import Optional
+from dotenv import load_dotenv
 
 from botbuilder.core import ActivityHandler, TurnContext
 from botbuilder.core import RecognizerResult
 from botbuilder.ai.luis import LuisApplication, LuisRecognizer
 
+load_dotenv()  # Load environment variables from .env file if present
 
 class TravelBot(ActivityHandler):
     """A bot that uses LUIS to recognize intents and entities.
@@ -16,7 +18,7 @@ class TravelBot(ActivityHandler):
     def __init__(self):
         luis_app_id = os.getenv("LUIS_APP_ID", "")
         luis_api_key = os.getenv("LUIS_API_KEY", "")
-        luis_api_host_name = os.getenv("LUIS_API_HOST_NAME", "")
+        luis_api_host_name = os.getenv("LUIS_API_HOST_NAME", "fly")
 
         self.luis_recognizer: Optional[LuisRecognizer] = None
         if luis_app_id and luis_api_key and luis_api_host_name:

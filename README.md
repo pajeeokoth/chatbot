@@ -1,4 +1,17 @@
 # chatbot
+
+This repository contains a small project with an aiohttp-based Bot Framework app located in `mytravel/`.
+
+## Structure
+- `extraction_script.py`
+- `P10_jupyternotebook.ipynb`
+- `mytravel/` — aiohttp bot exposing `/api/messages`
+
+## MyTravel app
+See `mytravel/README.md` for full setup and run instructions.
+
+Note: Legacy references to `bf_bot.py`, `bf_routes.py`, `server_bf.py`, and `requirements.bf.txt` have been removed. The app runs on `http://localhost:3978`.
+# chatbot
 chatbot to help users choose a travel offer
 This project is to create a chatbot to help users choose a travel offer.
 It is part of the OpenClassrooms "Build your own chatbot with Deep Learning" course.

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MyTravel Bot</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1 style="margin: 0;">MyTravel Bot</h1>
+      <span class="badge ok" id="sdk-status">Bot service is running</span>
+    </header>
+
+    <p>Welcome! This is the local landing page for your bot service.</p>
+
+    <h2>Endpoints</h2>
+    <ul>
+      <li><a href="/">GET /</a> — this page</li>
+      <li><a href="/api/messages">GET /api/messages</a> — info endpoint</li>
+      <li><code>POST /api/messages</code> — Bot Framework Activities</li>
+    </ul>
+
+    <h2>Quick test</h2>
+    <pre><code>curl -i http://localhost:3978/
+curl -i -X OPTIONS http://localhost:3978/api/messages
+curl -i -X POST http://localhost:3978/api/messages -H "Content-Type: application/json" -d '{"type":"message","text":"hello","serviceUrl":"http://localhost:3978","from":{"id":"user"}, "recipient":{"id":"bot"}, "conversation":{"id":"conv1"}, "channelId":"emulator"}'</code></pre>
+
+    <h2>Bot Framework Emulator</h2>
+    <p>Connect to <code>http://localhost:3978/api/messages</code>. Leave App ID/Password empty for local testing.</p>
+
+    <h2>LUIS configuration (optional)</h2>
+    <p>Set environment variables: <code>LUIS_APP_ID</code>, <code>LUIS_API_KEY</code>, <code>LUIS_API_HOST_NAME</code>.</p>
+  </body>
+  </html>

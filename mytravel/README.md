@@ -1,3 +1,39 @@
+# MyTravel Bot (aiohttp)
+
+This bot runs on aiohttp and exposes the Bot Framework endpoint at `/api/messages`.
+
+Removed legacy files: `bf_bot.py`, `bf_routes.py`, `server_bf.py`, `requirements.bf.txt`. All instructions below apply to the aiohttp app only.
+
+## Prerequisites
+- Python 3.9+
+- Bot Framework Emulator (for local testing)
+
+## Setup
+1) Install dependencies
+```bash
+pip install -r mytravel/requirements.txt
+```
+
+2) Environment variables (optional for local)
+Create `mytravel/.env` and add values as needed. For local Emulator, leave App ID/Password empty.
+```
+MICROSOFT_APP_ID=
+MICROSOFT_APP_PASSWORD=
+luis_app_id=
+luis_api_key=
+luis_api_host_name=
+```
+
+## Run
+```bash
+python mytravel/app.py
+```
+The server listens on `http://localhost:3978`.
+
+## Test with Emulator
+- Endpoint URL: `http://localhost:3978/api/messages`
+- Microsoft App ID: leave empty for local
+- Microsoft App Password: leave empty for local
 # MyTravel Bot (aiohttp + Microsoft Bot Builder SDK for Python)
 
 This is a minimal messaging web application using aiohttp and the Microsoft Bot Builder SDK (Python).
