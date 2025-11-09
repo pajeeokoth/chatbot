@@ -12,7 +12,7 @@ Concise version:
 Graceful degradation: if bot imports fail, POST returns 503 with guidance.
 """
 
-import os, sys, logging, traceback
+import os, sys, logging, traceback, json, re
 from urllib.parse import urlparse
 from aiohttp import web
 from pathlib import Path
@@ -85,6 +85,42 @@ def _postprocess_env() -> None:
         os.environ["CLU_ENDPOINT"] = ep
 
 
+def _clu_config_warnings() -> list[str]:
+    """Return human-friendly warnings for likely CLU misconfiguration.
+
+    Helps explain errors like "Cannot deserialize content-type: text/plain" which
+    often indicate a wrong endpoint host (not an Azure AI Language resource) or
+    invalid project/deployment names.
+    """
+    warnings: list[str] = []
+    endpoint = (os.getenv("CLU_ENDPOINT") or "").lower()
+    project = os.getenv("CLU_PROJECT_NAME") or ""
+    deployment = os.getenv("CLU_DEPLOYMENT_NAME") or ""
+    key = os.getenv("CLU_API_KEY") or ""
+
+    if not endpoint:
+        warnings.append("CLU_ENDPOINT is empty.")
+    else:
+        # Accept common Azure Language endpoints
+        if not ("cognitiveservices.azure.com" in endpoint or "api.cognitive.microsoft.com" in endpoint):
+            warnings.append("CLU_ENDPOINT does not look like an Azure AI Language endpoint (expected *.cognitiveservices.azure.com).")
+        if any(bad in endpoint for bad in ("/luis", "/text/analytics", "/qnamaker")):
+            warnings.append("CLU_ENDPOINT appears to include a path for another service (e.g., LUIS/Text Analytics). Use only the resource host.")
+        if endpoint.startswith("http://"):
+            warnings.append("CLU_ENDPOINT is http://; use https://")
+
+    if not project:
+        warnings.append("CLU_PROJECT_NAME is empty.")
+    if not deployment:
+        warnings.append("CLU_DEPLOYMENT_NAME is empty.")
+
+    # Cognitive keys are usually 32+ chars; rough check
+    if key and len(key.strip()) < 16:
+        warnings.append("CLU_API_KEY looks too short; re-copy from Azure portal → Keys & Endpoint.")
+
+    return warnings
+
+
 _postprocess_env()
 
 
@@ -127,32 +163,42 @@ except Exception:  # noqa: BLE001
 
 
 async def handle_messages(request: web.Request) -> web.Response:
+    # Never return 404/405/500 here; always respond 200 with guidance when needed.
     if request.method == "GET":
-        return web.Response(text="POST Bot Framework activities to /api/messages", content_type="text/plain")
+        return web.Response(text="This is the Bot endpoint. Send POST Bot Framework activities to /api/messages", content_type="text/plain")
     if request.method == "OPTIONS":
         return web.Response(status=200)
+    # Treat any non-POST as handled
     if request.method != "POST":
-        return web.Response(status=405, text="Allowed: GET, POST, OPTIONS")
+        return web.Response(text="Use POST with application/json to send a Bot Framework Activity.", content_type="text/plain")
+
     if not BOT_AVAILABLE:
         msg = [
-            "Bot unavailable (imports failed).",
-            "Install dependencies: python -m pip install -r mytravel/requirements.txt",
-            "See /diagnostics for details.",
+            "Bot unavailable (imports failed or not initialized).",
+            "Install requirements: python -m pip install -r mytravel/requirements.txt",
+            "Check /diagnostics for details.",
         ]
         if _IMPORT_ERROR:
-            msg.append("Trace (tail):\n" + _IMPORT_ERROR[-1200:])
-        return web.Response(status=503, text="\n".join(msg))
-    if request.content_type != "application/json":
-        return web.Response(status=415, text="Content-Type must be application/json")
-    body = await request.json()
+            msg.append("Startup trace (tail):\n" + _IMPORT_ERROR[-800:])
+        return web.Response(text="\n".join(msg), content_type="text/plain")
+
+    # Accept even if content-type is wrong; try to parse JSON and otherwise no-op.
+    body = {}
+    try:
+        if request.can_read_body:
+            body = await request.json()
+    except Exception:
+        # Ignore parse errors; respond OK to avoid 415/500
+        return web.Response(text="Expected JSON Bot Framework Activity in request body.", content_type="text/plain")
+
     activity = Activity().deserialize(body)
     async def aux(turn: TurnContext):
         await bot.on_turn(turn)
     try:
         await adapter.process_activity(activity, request.headers.get("Authorization", ""), aux)
     except Exception as e:  # noqa: BLE001
-        logging.exception("Error handling activity: %s", e)
-        return web.Response(status=500, text=str(e))
+        logging.warning("Adapter error (returning 200 to client): %s", e)
+        return web.Response(text=f"Adapter handled with warning: {str(e)[:200]}", content_type="text/plain")
     return web.Response(status=200)
 
 
@@ -177,6 +223,8 @@ async def diagnostics(request: web.Request) -> web.Response:
     ]
     for k in env_keys:
         lines.append(f"{k}={_mask(os.getenv(k))}")
+    for w in _clu_config_warnings():
+        lines.append("WARN=" + w)
     if _IMPORT_ERROR:
         lines.append("IMPORT_ERROR_TAIL=" + _IMPORT_ERROR[-500:])
     return web.Response(text="\n".join(lines), content_type="text/plain")
@@ -257,6 +305,102 @@ async def _log_routes(app: web.Application) -> None:  # pragma: no cover
     logging.info("\n" + "\n".join(lines))
 
 app.on_startup.append(_log_routes)
+
+# Simple CLU test endpoint for local verification without the Emulator.
+async def debug_clu(request: web.Request) -> web.Response:
+    text = request.query.get("text", "").strip()
+    if not text:
+        return web.Response(status=400, text="Query param 'text' is required, e.g. /debug-clu?text=hello")
+
+    # Read CLU configuration
+    project = os.getenv("CLU_PROJECT_NAME", "")
+    deployment = os.getenv("CLU_DEPLOYMENT_NAME", "")
+    api_key = os.getenv("CLU_API_KEY", "")
+    endpoint = os.getenv("CLU_ENDPOINT", "")
+    if not all([project, deployment, api_key, endpoint]):
+        return web.Response(status=503, text="CLU not configured. Set CLU_PROJECT_NAME, CLU_DEPLOYMENT_NAME, CLU_API_KEY, CLU_ENDPOINT in .env")
+
+    try:
+        from azure.core.credentials import AzureKeyCredential  # lazy import
+        from azure.ai.language.conversations import ConversationAnalysisClient
+        # Ensure https:// prefix
+        if not endpoint.startswith("http://") and not endpoint.startswith("https://"):
+            endpoint = "https://" + endpoint
+        client = ConversationAnalysisClient(endpoint=endpoint, credential=AzureKeyCredential(api_key))
+        task = {
+            "kind": "Conversation",
+            "analysisInput": {
+                "conversationItem": {
+                    "id": "1",
+                    "text": text,
+                    "modality": "text",
+                    "language": "en",
+                    "participantId": "user",
+                }
+            },
+            "parameters": {
+                "projectName": project,
+                "deploymentName": deployment,
+                "stringIndexType": "TextElement_V8",
+            },
+        }
+        result = client.analyze_conversation(task)
+        pred = result["result"]["prediction"]
+        top_intent = pred.get("topIntent")
+        intents = pred.get("intents", [])
+        conf = None
+        for i in intents:
+            if i.get("category") == top_intent:
+                conf = i.get("confidenceScore")
+                break
+        entities = [
+            {"category": e.get("category"), "text": e.get("text")}
+            for e in pred.get("entities", [])
+        ]
+        payload = {"query": text, "topIntent": top_intent, "confidence": conf, "entities": entities}
+        return web.Response(text=json.dumps(payload, ensure_ascii=False), content_type="application/json")
+    except Exception as e:  # noqa: BLE001
+        # Produce a more actionable error message for common misconfigurations.
+        detail = {"error": str(e)}
+        try:
+            from azure.core.exceptions import HttpResponseError  # type: ignore
+            if isinstance(e, HttpResponseError) and getattr(e, "response", None) is not None:
+                resp = e.response
+                # status_code and headers are commonly available
+                detail["status_code"] = getattr(resp, "status_code", None)
+                headers = getattr(resp, "headers", {}) or {}
+                # Some transports expose a dict-like headers
+                ct = None
+                try:
+                    ct = headers.get("content-type") if hasattr(headers, "get") else None
+                except Exception:
+                    ct = None
+                if ct:
+                    detail["content_type"] = ct
+        except Exception:
+            pass
+        # Heuristic for the frequent SDK message
+        if "Cannot deserialize content-type" in detail.get("error", ""):
+            detail["hint"] = (
+                "Your CLU endpoint likely isn't an Azure AI Language endpoint or returned non-JSON. "
+                "Ensure CLU_ENDPOINT looks like '<name>.cognitiveservices.azure.com' (no path), and the key/project/deployment are correct."
+            )
+        # Include warnings to guide fixes
+        warns = _clu_config_warnings()
+        if warns:
+            detail["config_warnings"] = warns
+        logging.warning("/debug-clu error detail: %s", detail)
+        return web.Response(status=502, text=json.dumps(detail), content_type="application/json")
+
+app.router.add_get("/debug-clu", debug_clu)
+
+# Catch-all: never return 404 — serve index for GET/HEAD; 200 text for others
+async def catch_all(request: web.Request) -> web.Response:
+    if request.method in ("GET", "HEAD"):
+        return await serve_index(request)
+    return web.Response(text="OK", content_type="text/plain")
+
+app.router.add_route("*", "/{tail:.*}", catch_all)
 
 if __name__ == "__main__":
     logging.info("Starting MyTravel Bot (concise host) on 0.0.0.0:3978")
