@@ -1,3 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MyTravel Bot • CLU + Bot Framework</title>
+    <style>
+      :root {
+        --bg: radial-gradient(1200px 800px at 10% 10%, #1f2937 0%, #0b1220 60%, #070b14 100%);
+        --card-bg: rgba(255, 255, 255, 0.06);
+        --card-border: rgba(255, 255, 255, 0.12);
+        --text: #e5e7eb;
+        --muted: #9ca3af;
+        --accent: #60a5fa;
+        --accent-2: #34d399;
+        --danger: #f87171;
+        --shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, Noto Sans, "Apple Color Emoji", "Segoe UI Emoji";
+        color: var(--text);
+        background: var(--bg) fixed;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      .container { width: 100%; max-width: 980px; }
+
+      .hero {
+        display: grid;
+        gap: 18px;
+        justify-items: center;
+        text-align: center;
+        margin-bottom: 18px;
+      }
+      .logo {
+        height: 56px; width: 56px;
+        display: grid; place-items: center;
+        border-radius: 14px;
+        background: linear-gradient(135deg, rgba(96,165,250,0.25), rgba(52,211,153,0.25));
+        border: 1px solid var(--card-border);
+        box-shadow: var(--shadow);
+        font-size: 28px;
+      }
+      h1 { margin: 0; font-size: 28px; letter-spacing: 0.3px; }
+      p.sub { margin: 0; color: var(--muted); }
+
+      .grid {
+        display: grid; gap: 18px;
+        grid-template-columns: repeat(12, 1fr);
+      }
+      .card {
+        grid-column: span 12;
+        background: var(--card-bg);
+        border: 1px solid var(--card-border);
+        box-shadow: var(--shadow);
+        border-radius: 16px;
+        padding: 22px;
+        backdrop-filter: blur(10px);
+      }
+      @media (min-width: 820px) {
+        .left { grid-column: span 7; }
+        .right { grid-column: span 5; }
+      }
+      h2 { margin: 0 0 12px; font-size: 18px; font-weight: 600; }
+      .muted { color: var(--muted); }
+      .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+      .btn {
+        appearance: none; border: 1px solid var(--card-border);
+        color: var(--text); background: transparent;
+        padding: 10px 14px; border-radius: 10px; cursor: pointer;
+        transition: transform .08s ease, border-color .2s ease, background .2s ease;
+      }
+      .btn:hover { transform: translateY(-1px); border-color: rgba(255,255,255,0.25); }
+      .btn.primary { background: linear-gradient(135deg, rgba(96,165,250,0.24), rgba(52,211,153,0.24)); }
+      .btn.accent { background: rgba(96,165,250,0.18); }
+      .btn.link { background: transparent; color: var(--accent); border-color: rgba(96,165,250,0.35); }
+
+      .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: rgba(0,0,0,0.25); padding: 4px 8px; border-radius: 8px; border: 1px solid var(--card-border); }
+      .code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        background: rgba(0,0,0,0.25);
+        border: 1px solid var(--card-border);
+        border-radius: 10px;
+        padding: 10px;
+        overflow-x: auto;
+      }
+      .status {
+        display: inline-flex; align-items: center; gap: 8px; font-size: 14px;
+        padding: 8px 10px; border-radius: 999px; border: 1px solid var(--card-border);
+        background: rgba(0,0,0,0.25);
+      }
+      .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+      .dot.ok { background: var(--accent-2); box-shadow: 0 0 8px rgba(52,211,153,0.65); }
+      .dot.err { background: var(--danger); box-shadow: 0 0 8px rgba(248,113,113,0.65); }
+
+      footer { margin-top: 14px; text-align: center; color: var(--muted); font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <section class="hero">
+        <div class="logo" aria-hidden="true">✈️</div>
+        <h1>MyTravel Bot</h1>
+        <p class="sub">Microsoft Bot Framework + Azure AI Language (Conversational Language Understanding)</p>
+        <div class="status" id="status"><span class="dot" id="dot"></span><span id="status-text">Checking status…</span></div>
+      </section>
+
+      <section class="grid">
+        <div class="card left">
+          <h2>Connect with Bot Framework Emulator</h2>
+          <p class="muted">Use the Emulator to chat with the bot locally.</p>
+          <div class="code" style="margin-top:10px">http://localhost:3978/api/messages</div>
+          <div class="row" style="margin-top:12px">
+            <button class="btn primary" id="copy">Copy URL</button>
+            <a class="btn link" href="https://aka.ms/botframework-emulator" target="_blank" rel="noreferrer">Get Emulator</a>
+          </div>
+          <p class="muted" style="margin-top:12px">Tip: Leave Microsoft App ID/Password empty for local testing.</p>
+        </div>
+
+        <div class="card right">
+          <h2>Utilities</h2>
+          <div class="row" style="margin-bottom:10px">
+            <a class="btn accent" href="/diagnostics" target="_blank" rel="noreferrer">Diagnostics</a>
+            <a class="btn" href="/routes" target="_blank" rel="noreferrer">Routes</a>
+          </div>
+          <p class="muted">This project uses CLU for intent/entity detection when configured via environment variables. If CLU isn’t configured, the bot falls back to echo.</p>
+        </div>
+      </section>
+
+      <footer>
+        <span>© <span id="year"></span> MyTravel Bot • CLU-enabled</span>
+      </footer>
+    </main>
+
+    <script>
+      (function() {
+        const $ = (id) => document.getElementById(id);
+        const dot = $("dot");
+        const statusText = $("status-text");
+        const copyBtn = $("copy");
+        const year = $("year");
+        year.textContent = new Date().getFullYear();
+
+        // Check diagnostics endpoint
+        fetch("/diagnostics").then(async (res) => {
+          if (res.ok) {
+            dot.classList.add("ok");
+            statusText.textContent = "Online";
+          } else {
+            dot.classList.add("err");
+            statusText.textContent = "Diagnostics error (" + res.status + ")";
+          }
+        }).catch(() => {
+          dot.classList.add("err");
+          statusText.textContent = "Offline";
+        });
+
+        // Copy Emulator URL
+        copyBtn.addEventListener("click", async () => {
+          const url = "http://localhost:3978/api/messages";
+          try {
+            await navigator.clipboard.writeText(url);
+            copyBtn.textContent = "Copied";
+            setTimeout(() => copyBtn.textContent = "Copy URL", 1400);
+          } catch (e) {
+            // Fallback
+            const ta = document.createElement("textarea");
+            ta.value = url; document.body.appendChild(ta); ta.select();
+            try { document.execCommand("copy"); } catch (_) {}
+            document.body.removeChild(ta);
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>
 <!doctype html>
 <html lang="en">
   <head>
@@ -29,7 +210,7 @@ curl -i -X POST http://localhost:3978/api/messages -H "Content-Type: application
     <h2>Bot Framework Emulator</h2>
     <p>Connect to <code>http://localhost:3978/api/messages</code>. Leave App ID/Password empty for local testing.</p>
 
-    <h2>LUIS configuration (optional)</h2>
-    <p>Set environment variables: <code>LUIS_APP_ID</code>, <code>LUIS_API_KEY</code>, <code>LUIS_API_HOST_NAME</code>.</p>
+    <h2>See You on Your Next Journey</h2>
+    <p>Happy FlyME Holiday.</p>
   </body>
   </html>

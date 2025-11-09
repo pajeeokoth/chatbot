@@ -1,57 +1,64 @@
-import os
-import json
-from typing import Optional
-from dotenv import load_dotenv
-
+from azure.core.credentials import AzureKeyCredential
+from azure.ai.language.conversations import ConversationAnalysisClient
 from botbuilder.core import ActivityHandler, TurnContext
-from botbuilder.core import RecognizerResult
-from botbuilder.ai.luis import LuisApplication, LuisRecognizer
 
-load_dotenv()  # Load environment variables from .env file if present
+import os
 
 class TravelBot(ActivityHandler):
-    """A bot that uses LUIS to recognize intents and entities.
-
-    If LUIS environment variables are not provided the bot falls back to an echo response.
-    """
-
     def __init__(self):
-        luis_app_id = os.getenv("LUIS_APP_ID", "")
-        luis_api_key = os.getenv("LUIS_API_KEY", "")
-        luis_api_host_name = os.getenv("LUIS_API_HOST_NAME", "fly")
-
-        self.luis_recognizer: Optional[LuisRecognizer] = None
-        if luis_app_id and luis_api_key and luis_api_host_name:
-            # host name should be like "<your-resource>.cognitiveservices.azure.com" or "<region>.api.cognitive.microsoft.com"
-            luis_endpoint = f"https://fly.cognitiveservices.azure.com/"
-            luis_app = LuisApplication(luis_app_id, luis_api_key, luis_endpoint)
-            self.luis_recognizer = LuisRecognizer(luis_app)
+        self.clu_enabled = all(os.getenv(k) for k in (
+            "CLU_PROJECT_NAME", "CLU_DEPLOYMENT_NAME", "CLU_API_KEY", "CLU_ENDPOINT"
+        ))
+        if self.clu_enabled:
+            self.clu = ConversationAnalysisClient(
+                endpoint=f"https://{os.getenv('CLU_ENDPOINT').lstrip('https://')}",
+                credential=AzureKeyCredential(os.getenv("CLU_API_KEY"))
+            )
+            self.project = os.getenv("CLU_PROJECT_NAME")
+            self.deployment = os.getenv("CLU_DEPLOYMENT_NAME")
 
     async def on_message_activity(self, turn_context: TurnContext):
-        text = turn_context.activity.text or ""
+        text = (turn_context.activity.text or "").strip()
+        if not text:
+            await turn_context.send_activity("Please send some text.")
+            return
 
-        if self.luis_recognizer:
-            # Call LUIS recognizer
-            recognizer_result: RecognizerResult = await self.luis_recognizer.recognize(turn_context)
+        if not self.clu_enabled:
+            await turn_context.send_activity(f"(Echo) {text}")
+            return
 
-            # Determine top intent
-            top_intent = LuisRecognizer.top_intent(recognizer_result)
-            # top_intent typically returns a string; keep compatibility if tuple-like
-            if isinstance(top_intent, tuple):
-                intent_name, score = top_intent
-            else:
-                intent_name = top_intent
-                score = None
-
-            # Entities are available in the recognizer result as a dict-like JSON
-            entities = getattr(recognizer_result, "entities", {}) or {}
-
-            reply = {
-                "text": f"Top intent: {intent_name}" + (f" (score={score:.2f})" if score is not None else ""),
-                "entities": entities,
+        task = {
+            "kind": "Conversation",
+            "analysisInput": {
+                "conversationItem": {
+                    "id": "1",
+                    "text": text,
+                    "modality": "text",
+                    "language": "en",
+                    "participantId": "user"
+                }
+            },
+            "parameters": {
+                "projectName": self.project,
+                "deploymentName": self.deployment,
+                "stringIndexType": "TextElement_V8"
             }
+        }
 
-            await turn_context.send_activity(json.dumps(reply))
-        else:
-            # Fallback: echo
-            await turn_context.send_activity(f"You said: {text}")
+        try:
+            result = self.clu.analyze_conversation(task)
+            top_intent = result["result"]["prediction"]["topIntent"]
+            intents = result["result"]["prediction"]["intents"]
+            entities = result["result"]["prediction"].get("entities", [])
+            confidence = next((i["confidenceScore"] for i in intents if i["category"] == top_intent), None)
+
+            # Basic response using CLU
+            reply = f"Intent: {top_intent} (confidence={confidence:.2f})"
+            if entities:
+                ent_parts = [f"{e['category']}='{e['text']}'" for e in entities]
+                reply += " | Entities: " + ", ".join(ent_parts)
+
+            await turn_context.send_activity(reply)
+        except Exception as e:
+            await turn_context.send_activity(f"CLU error: {e}; falling back to echo.")
+            await turn_context.send_activity(f"(Echo) {text}")

@@ -1,16 +1,16 @@
 # chatbot
 
-This repository contains a small project with an aiohttp-based Bot Framework app located in `mytravel/`.
+This repository contains an aiohttp-based Microsoft Bot Framework app in `mytravel/` with Conversational Language Understanding (CLU) integration.
 
 ## Structure
 - `extraction_script.py`
 - `P10_jupyternotebook.ipynb`
-- `mytravel/` — aiohttp bot exposing `/api/messages`
+- `mytravel/` — aiohttp bot exposing `/api/messages` (CLU-enabled)
 
 ## MyTravel app
-See `mytravel/README.md` for full setup and run instructions.
+See `mytravel/README.md` for setup and CLU configuration.
 
-Note: Legacy references to `bf_bot.py`, `bf_routes.py`, `server_bf.py`, and `requirements.bf.txt` have been removed. The app runs on `http://localhost:3978`.
+The app runs on `http://localhost:3978` for local development.
 # chatbot
 chatbot to help users choose a travel offer
 This project is to create a chatbot to help users choose a travel offer.
