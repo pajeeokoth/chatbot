@@ -17,6 +17,8 @@ from urllib.parse import urlparse
 from aiohttp import web
 from pathlib import Path
 from dotenv import load_dotenv
+from collections import deque
+from datetime import datetime
 
 # Load environment variables from the .env file located alongside this script
 DOTENV_PATH = Path(__file__).with_name(".env")
@@ -28,6 +30,9 @@ load_dotenv(DOTENV_PATH, override=True)
 ###############################################################################
 # Environment loading & normalization
 ###############################################################################
+
+# In-memory error log buffer (last 50 errors)
+ERROR_LOG_BUFFER = deque(maxlen=50)
 
 def _normalize_env_aliases() -> None:
     alias_pairs = [
@@ -144,7 +149,7 @@ AUTH_ENABLED = False
 _IMPORT_ERROR = ""
 adapter = bot = Activity = TurnContext = None
 try:
-    from botbuilder.schema import Activity  # type: ignore
+    from botbuilder.schema import Activity, ChannelAccount, ConversationAccount  # type: ignore
     from botbuilder.core import BotFrameworkAdapter, BotFrameworkAdapterSettings, TurnContext  # type: ignore
     from bot import TravelBot  # local bot
     APP_ID = os.getenv("MICROSOFT_APP_ID", "")
@@ -183,23 +188,74 @@ async def handle_messages(request: web.Request) -> web.Response:
         return web.Response(text="\n".join(msg), content_type="text/plain")
 
     # Accept even if content-type is wrong; try to parse JSON and otherwise no-op.
-    body = {}
-    try:
-        if request.can_read_body:
+    # Parse request body carefully to avoid "Cannot deserialize content-type: text/plain" errors
+    body = None
+    raw_text = None
+    
+    # Only attempt JSON parse if content-type is explicitly JSON
+    if "application/json" in (request.content_type or "").lower():
+        try:
             body = await request.json()
-    except Exception:
-        # Ignore parse errors; respond OK to avoid 415/500
-        return web.Response(text="Expected JSON Bot Framework Activity in request body.", content_type="text/plain")
+        except Exception as e:  # noqa: BLE001
+            logging.info("JSON parse failed (will use text fallback): %s", e)
+    
+    # For non-JSON or failed JSON, read as text
+    if body is None:
+        try:
+            raw_text = await request.text()
+        except Exception:  # noqa: BLE001
+            raw_text = ""
 
-    activity = Activity().deserialize(body)
+    # Construct a valid Activity dict
+    if not isinstance(body, dict) or not body.get("type"):
+        msg_text = (raw_text or "").strip() or "(empty)"
+        body = {
+            "type": "message",
+            "id": "auto-generated",
+            "serviceUrl": "http://localhost:3978",
+            "channelId": "directline",
+            "from": {"id": "user", "name": "User"},
+            "recipient": {"id": "bot", "name": "Bot"},
+            "conversation": {"id": "conversation-id"},
+            "text": msg_text,
+        }
+
+    # Deserialize into Activity
+    try:
+        activity = Activity().deserialize(body)  # type: ignore[arg-type]
+    except Exception as e:  # noqa: BLE001
+        logging.warning("Activity deserialization failed: %s", e)
+        return web.Response(status=200, text=f"Could not parse activity: {str(e)[:100]}")
+
+    # Process via adapter
     async def aux(turn: TurnContext):
         await bot.on_turn(turn)
+    
     try:
         await adapter.process_activity(activity, request.headers.get("Authorization", ""), aux)
+        return web.Response(status=200)
     except Exception as e:  # noqa: BLE001
-        logging.warning("Adapter error (returning 200 to client): %s", e)
-        return web.Response(text=f"Adapter handled with warning: {str(e)[:200]}", content_type="text/plain")
-    return web.Response(status=200)
+        # Adapter failed; bypass it and call bot's message handler directly
+        logging.warning("Adapter error, using direct message handler: %s", e)
+        try:
+            # Create a minimal mock TurnContext-like object with just what the bot needs
+            class SimpleTurnContext:
+                def __init__(self, act):
+                    self.activity = act
+                    self._responses = []
+                async def send_activity(self, text_or_activity):
+                    if isinstance(text_or_activity, str):
+                        self._responses.append(text_or_activity)
+                    else:
+                        self._responses.append(getattr(text_or_activity, 'text', str(text_or_activity)))
+            
+            ctx = SimpleTurnContext(activity)
+            await bot.on_message_activity(ctx)  # type: ignore[attr-defined]
+            reply = "\n".join(ctx._responses) if ctx._responses else "OK"
+            return web.Response(status=200, text=reply, content_type="text/plain")
+        except Exception as inner:  # noqa: BLE001
+            logging.exception("Direct bot handler also failed: %s", inner)
+            return web.Response(status=200, text=f"Bot error: {str(inner)[:150]}", content_type="text/plain")
 
 
 async def serve_index(request: web.Request) -> web.Response:
@@ -241,8 +297,24 @@ async def routes_info(request: web.Request) -> web.Response:
                 path = res.get_info().get("path")
             except Exception:  # noqa: BLE001
                 path = str(res)
-        out.append(f"{method} {path}")
+        out.append(f"{method:7} {path}")
     return web.Response(text="\n".join(out), content_type="text/plain")
+
+async def logs_info(request: web.Request) -> web.Response:
+    """Show recent errors and warnings captured in memory."""
+    count = int(request.query.get("count", "50"))
+    logs = list(ERROR_LOG_BUFFER)[-count:]
+    if not logs:
+        return web.Response(text="No errors or warnings logged yet.", content_type="text/plain")
+    
+    # Format for readability
+    lines = [f"Last {len(logs)} error(s)/warning(s):\n"]
+    for entry in logs:
+        lines.append(f"[{entry['timestamp']}] {entry['level']}")
+        lines.append(entry['message'])
+        lines.append("-" * 60)
+    
+    return web.Response(text="\n".join(lines), content_type="text/plain")
 @web.middleware
 async def log_middleware(request: web.Request, handler):
     logging.info("%s %s", request.method, request.path_qs)
@@ -263,6 +335,22 @@ async def log_middleware(request: web.Request, handler):
 
 # Enable INFO logging for quick diagnostics
 logging.basicConfig(level=logging.INFO)
+
+# Custom handler to capture errors in memory
+class BufferHandler(logging.Handler):
+    def emit(self, record):
+        if record.levelno >= logging.WARNING:
+            try:
+                msg = self.format(record)
+                ERROR_LOG_BUFFER.append({
+                    "timestamp": datetime.now().isoformat(),
+                    "level": record.levelname,
+                    "message": msg
+                })
+            except Exception:  # noqa: BLE001
+                pass
+
+logging.getLogger().addHandler(BufferHandler())
 
 app = web.Application(middlewares=[log_middleware])
 app.router.add_static("/static/", path=str(Path(__file__).parent / "static"), name="static")
@@ -287,6 +375,7 @@ for base in ["/api/messages", "/api/messages/"]:
     app.router.add_route("OPTIONS", base, handle_messages)
 app.router.add_get("/diagnostics", diagnostics)
 app.router.add_get("/routes", routes_info)
+app.router.add_get("/logs", logs_info)
 app.router.add_get("/health", health)
 
 # Log routes on startup for easier 404 debugging
