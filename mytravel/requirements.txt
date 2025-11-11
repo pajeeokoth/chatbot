@@ -1,2 +1,17 @@
-botbuilder-integration-aiohttp>=4.14.0
-python-dotenv>=1.0.0
+aiohttp>=3.9,<4
+python-dotenv>=1.0,<2
+botbuilder-core>=4.14,<5
+botbuilder-schema>=4.14,<5
+requests>=2.31,<3
+azure-ai-language-conversations>=1.1,<2
+aiohttp==3.8.1
+aiodns==3.0.0
+aiohttp-cors==0.7.0
+
+# Microsoft BotBuilder (allow range to pick compatible wheels)
+botbuilder-core>=4.16.0,<5.0
+botbuilder-schema>=4.16.0,<5.0
+botbuilder-ai>=4.16.0,<5.0
+
+python-dotenv==1.0.0
+requests==2.31.0

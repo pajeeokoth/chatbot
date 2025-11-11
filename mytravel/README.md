@@ -1,42 +1,147 @@
-# echo_bot
+# MyTravel Bot (aiohttp + Conversational Language Understanding)
 
-A bot that echoes back user response
-
-This bot has been created using [Bot Framework](https://dev.botframework.com), it shows how to create a simple bot that accepts input from the user and echoes it back.
+This bot runs on aiohttp, uses the Microsoft Bot Framework SDK for Python, and integrates with Azure AI Language — Conversational Language Understanding (CLU). It exposes the Bot Framework endpoint at `/api/messages`.
 
 ## Prerequisites
+- Python 3.9+
+- Bot Framework Emulator (for local testing)
+- An Azure AI Language resource with a CLU project and a deployed model
 
-This sample **requires** prerequisites in order to run.
+## Setup
+1) Install dependencies
+```bash
+pip install -r mytravel/requirements.txt
+```
 
-### Install Python 3.6
+2) Environment variables (create `mytravel/.env`)
+Use uppercase names. For local Emulator, leave App ID/Password empty.
+```
+# Bot Framework credentials (leave empty for local Emulator)
+MICROSOFT_APP_ID=
+MICROSOFT_APP_PASSWORD=
 
-## Running the sample
-- Run `pip install -r requirements.txt` to install all dependencies
-- Run `python app.py`
+# Conversational Language Understanding (CLU)
+CLU_PROJECT_NAME=
+CLU_DEPLOYMENT_NAME=
+CLU_API_KEY=
+CLU_ENDPOINT=  # e.g., https://your-resource.cognitiveservices.azure.com
+```
 
+Notes:
+- `CLU_ENDPOINT` must include `https://` and no trailing slash.
+- If CLU variables are not set, the bot falls back to echo so you can keep developing.
 
-## Testing the bot using Bot Framework Emulator
+## Run
+```bash
+python mytravel/app.py
+```
+The server listens on `http://localhost:3978`.
 
-[Bot Framework Emulator](https://github.com/microsoft/botframework-emulator) is a desktop application that allows bot developers to test and debug their bots on localhost or running remotely through a tunnel.
+## Test with Emulator
+- Endpoint URL: `http://localhost:3978/api/messages`
+- Microsoft App ID: leave empty for local
+- Microsoft App Password: leave empty for local
 
-- Install the Bot Framework Emulator version 4.3.0 or greater from [here](https://github.com/Microsoft/BotFramework-Emulator/releases)
+Auth rules:
+- For local Emulator, leave BOTH MICROSOFT_APP_ID and MICROSOFT_APP_PASSWORD empty in `.env` and in the Emulator.
+- For channels or authenticated Emulator connections, set BOTH values and enter the same pair in the Emulator. If only one is set, the app falls back to unauthenticated mode for local development.
 
-### Connect to the bot using Bot Framework Emulator
+## CLU behavior
+- With CLU configured, the bot calls CLU and returns a compact JSON summary: top intent, confidence, and entities.
+- Without CLU, the bot echoes the user message.
+# MyTravel Bot (aiohttp + CLU)
 
-- Launch Bot Framework Emulator
-- Enter a Bot URL of `http://localhost:3978/api/messages`
+This bot runs on aiohttp, uses the Microsoft Bot Framework SDK for Python, and integrates with Azure AI Language — Conversational Language Understanding (CLU). It exposes the Bot Framework endpoint at `/api/messages`.
 
+## Prerequisites
+- Python 3.9+
+- Bot Framework Emulator (for local testing)
 
-## Further reading
+## Setup
+1) Install dependencies
+```bash
+pip install -r mytravel/requirements.txt
+```
 
-- [Bot Framework Documentation](https://docs.botframework.com)
-- [Bot Basics](https://docs.microsoft.com/azure/bot-service/bot-builder-basics?view=azure-bot-service-4.0)
-- [Dialogs](https://docs.microsoft.com/azure/bot-service/bot-builder-concept-dialog?view=azure-bot-service-4.0)
-- [Gathering Input Using Prompts](https://docs.microsoft.com/azure/bot-service/bot-builder-prompts?view=azure-bot-service-4.0&tabs=csharp)
-- [Activity processing](https://docs.microsoft.com/en-us/azure/bot-service/bot-builder-concept-activity-processing?view=azure-bot-service-4.0)
-- [Azure Bot Service Introduction](https://docs.microsoft.com/azure/bot-service/bot-service-overview-introduction?view=azure-bot-service-4.0)
-- [Azure Bot Service Documentation](https://docs.microsoft.com/azure/bot-service/?view=azure-bot-service-4.0)
-- [Azure CLI](https://docs.microsoft.com/cli/azure/?view=azure-cli-latest)
-- [Azure Portal](https://portal.azure.com)
-- [Language Understanding using LUIS](https://docs.microsoft.com/azure/cognitive-services/luis/)
-- [Channels and Bot Connector Service](https://docs.microsoft.com/azure/bot-service/bot-concepts?view=azure-bot-service-4.0)
+2) Environment variables (create `mytravel/.env`)
+Use uppercase variable names (lowercase aliases are accepted at runtime). For local Emulator, leave App ID/Password empty.
+```
+# Bot Framework credentials (leave empty for local Emulator)
+MICROSOFT_APP_ID=
+MICROSOFT_APP_PASSWORD=
+
+# Conversational Language Understanding (CLU)
+CLU_PROJECT_NAME=
+CLU_DEPLOYMENT_NAME=
+CLU_API_KEY=
+CLU_ENDPOINT=
+```
+
+## Run
+```bash
+python mytravel/app.py
+```
+The server listens on `http://localhost:3978`.
+
+## Test with Emulator
+- Endpoint URL: `http://localhost:3978/api/messages`
+- Microsoft App ID: leave empty for local
+- Microsoft App Password: leave empty for local
+
+Auth rules:
+- For local Emulator, leave BOTH MICROSOFT_APP_ID and MICROSOFT_APP_PASSWORD empty in `.env` and in the Emulator.
+- For channels or authenticated Emulator connections, set BOTH values and enter the same pair in the Emulator. If only one is set, the app falls back to unauthenticated mode for local development.
+
+## CLU behavior
+- When CLU variables are set, the bot calls CLU and returns a compact JSON summary (top intent, confidence, entities).
+- If CLU is not configured, the bot falls back to echo so you can continue developing.
+# MyTravel Bot (aiohttp + Microsoft Bot Builder SDK for Python)
+
+This is a minimal messaging web application using aiohttp and the Microsoft Bot Builder SDK (Python).
+
+Files:
+- `app.py` - aiohttp app exposing `/api/messages` for Bot Framework requests.
+- `bot.py` - `TravelBot` implementing `ActivityHandler` with optional LUIS integration.
+- `requirements.txt` - Python dependencies.
+
+LUIS integration:
+
+- `LUIS_APP_ID` - your LUIS application ID
+- `LUIS_API_KEY` - your LUIS prediction key
+- `LUIS_API_HOST_NAME` - the host name for the LUIS prediction endpoint, e.g. `your-resource-name.cognitiveservices.azure.com` or `<region>.api.cognitive.microsoft.com`
+
+If these environment variables are set, the bot will call LUIS for each incoming message and return a JSON response containing the top intent and detected entities. If they are not set the bot falls back to a simple echo behavior.
+
+Quick start:
+1. Create a virtualenv and install dependencies:
+
+```bash
+python -m venv venv
+source venv/Scripts/activate  # Windows Git-bash: source venv/Scripts/activate
+python -m pip install -r mytravel/requirements.txt
+```
+
+2. Set credentials (for Bot Framework channel) or leave blank for local testing:
+
+```bash
+export MICROSOFT_APP_ID=""
+export MICROSOFT_APP_PASSWORD=""
+
+# CLU env vars 
+CLU_PROJECT_NAME=""
+CLU_DEPLOYMENT_NAME=""
+CLU_API_KEY=""
+CLU_ENDPOINT=""
+
+3. Run the app (aiohttp):
+
+```bash
+python mytravel/app.py
+```
+
+4. Use the Bot Framework Emulator to connect to:
+   - URL: http://localhost:3978/api/messages
+   - Microsoft App ID/Password: (leave blank if not set)
+
+Notes:
+- This is a minimal example. For production, use proper error handling, HTTPS, and configure channels in Azure Bot Service.
