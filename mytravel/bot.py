@@ -44,12 +44,18 @@ class TravelBot(ActivityHandler):
 
     async def on_message_activity(self, turn_context: TurnContext):  # type: ignore[override]
         text = (turn_context.activity.text or "").strip()
+        logging.info(f"Bot received message: {text}")
         if not text:
+            logging.info("Sending empty message response")
             await turn_context.send_activity("Say something (empty message received).")
             return
+        
         if not self.clu_enabled:
-            await turn_context.send_activity(f"(Echo) {text}\nCLU: {self._clu_reason}")
+            response = f"(Echo) {text}\nCLU: {self._clu_reason}"
+            logging.info(f"Sending echo response: {response}")
+            await turn_context.send_activity(response)
             return
+        
         try:
             task = {
                 "kind": "Conversation",
@@ -68,7 +74,10 @@ class TravelBot(ActivityHandler):
                 msg += f" | confidence={conf:.2f}"
             if ent_fmt:
                 msg += f" | entities={ent_fmt}"
+            logging.info(f"Sending CLU response: {msg}")
             await turn_context.send_activity(msg)
         except Exception as e:  # noqa: BLE001
             logging.warning("CLU error (fallback to echo): %s", e)
-            await turn_context.send_activity(f"(Echo) {text}\nCLU error: {str(e)[:120]}")
+            response = f"(Echo) {text}\nCLU error: {str(e)[:120]}"
+            logging.info(f"Sending error fallback: {response}")
+            await turn_context.send_activity(response)
