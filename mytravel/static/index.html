@@ -1,5 +1,320 @@
 <!DOCTYPE html>
 <html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>MyTravel Bot</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f5f5;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .header {
+      background: white;
+      padding: 20px;
+      border-bottom: 1px solid #e0e0e0;
+      text-align: center;
+    }
+    
+    .header h1 {
+      font-size: 24px;
+      font-weight: 400;
+      color: #333;
+    }
+    
+    .chat-container {
+      flex: 1;
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      background: white;
+    }
+    
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 30px;
+    }
+    
+    .message {
+      margin-bottom: 20px;
+      display: flex;
+    }
+    
+    .message.user {
+      justify-content: flex-end;
+    }
+    
+    .message-content {
+      max-width: 60%;
+      padding: 14px 18px;
+      border-radius: 4px;
+      line-height: 1.5;
+    }
+    
+    .message.bot .message-content {
+      background: #f0f0f0;
+      color: #333;
+    }
+    
+    .message.user .message-content {
+      background: #0078d4;
+      color: white;
+    }
+    
+    .message.error .message-content {
+      background: #fef2f2;
+      color: #dc2626;
+      border: 1px solid #fee2e2;
+    }
+    
+    .input-area {
+      border-top: 1px solid #e0e0e0;
+      padding: 20px 30px;
+      background: white;
+    }
+    
+    .input-group {
+      display: flex;
+      gap: 12px;
+    }
+    
+    #messageInput {
+      flex: 1;
+      padding: 12px 16px;
+      border: 1px solid #d0d0d0;
+      border-radius: 4px;
+      font-size: 15px;
+      font-family: inherit;
+      outline: none;
+    }
+    
+    #messageInput:focus {
+      border-color: #0078d4;
+    }
+    
+    #sendBtn {
+      padding: 12px 32px;
+      background: #0078d4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 15px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    
+    #sendBtn:hover:not(:disabled) {
+      background: #006cbe;
+    }
+    
+    #sendBtn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    
+    .footer {
+      padding: 12px;
+      text-align: center;
+      font-size: 13px;
+      color: #666;
+      border-top: 1px solid #e0e0e0;
+    }
+    
+    .footer a {
+      color: #0078d4;
+      text-decoration: none;
+      margin: 0 10px;
+    }
+  </style>
+</head>
+<body>
+        <section class="hero">
+        <div class="logo" aria-hidden="true">✈️</div>
+        <h1>MyTravel Bot</h1>
+        <p>Your AI travel assistant</p>
+        <p class="sub">Microsoft Bot Framework + Azure AI Language (Conversational Language Understanding)</p>
+        <div class="status" id="status"><span class="dot" id="dot"></span><span id="status-text">Checking status…</span></div>
+        <span class="badge ok" id="sdk-status">Bot service is running</span>
+      </section>
+  <div class="chat-container">
+    <div class="messages" id="messages">
+      <div class="message bot">
+        <div class="message-content">
+          Welcome! I can help you book flights, hotels, and plan your travel.
+        </div>
+      </div>
+    </div>
+    
+    <div class="input-area">
+      <div class="input-group">
+        <input 
+          type="text" 
+          id="messageInput" 
+          placeholder="Where would you like to go..."
+          autofocus
+        />
+        <button id="sendBtn">Send</button>
+      </div>
+    </div>
+    
+    <div class="footer">
+      <a href="/diagnostics" target="_blank">Diagnostics</a>
+      <a href="/logs" target="_blank">Logs</a>
+      <a href="/routes" target="_blank">Routes</a>
+    </div>
+  </div>
+
+  <script>
+    const messages = document.getElementById('messages');
+    const input = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+
+    function addMessage(text, type) {
+      const div = document.createElement('div');
+      div.className = `message ${type}`;
+      const content = document.createElement('div');
+      content.className = 'message-content';
+      content.textContent = text;
+      div.appendChild(content);
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    async function sendMessage() {
+      const text = input.value.trim();
+      if (!text) return;
+
+      addMessage(text, 'user');
+      input.value = '';
+      sendBtn.disabled = true;
+
+      try {
+        const res = await fetch('/api/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'message',
+            id: Date.now().toString(),
+            serviceUrl: 'http://localhost:3978',
+            channelId: 'webchat',
+            from: { id: 'user' },
+            recipient: { id: 'bot' },
+            conversation: { id: 'web-' + Date.now() },
+            text: text
+          })
+        });
+
+        const reply = await res.text();
+        if (res.ok && reply) {
+          addMessage(reply, 'bot');
+        } else {
+          addMessage('Error: ' + reply, 'error');
+        }
+      } catch (err) {
+        addMessage('Connection error', 'error');
+      } finally {
+        sendBtn.disabled = false;
+        input.focus();
+      }
+    }
+
+    sendBtn.onclick = sendMessage;
+    input.onkeypress = (e) => {
+      if (e.key === 'Enter') sendMessage();
+    };
+  </script>
+  <main class="container">
+      <section class="hero"> 
+        
+        <div class="status" id="status"><span class="dot" id="dot"></span><span id="status-text">Checking status…</span></div>
+      </section> 
+
+      <section class="grid">
+        <div class="card left">
+          <h2>Connect with Bot Framework Emulator</h2>
+          <p class="muted">Use the Emulator to chat with the bot locally.</p>
+          <div class="code" style="margin-top:10px">http://localhost:3978/api/messages</div>
+          <div class="row" style="margin-top:12px">
+            <button class="btn primary" id="copy">Copy URL</button>
+            <a class="btn link" href="https://aka.ms/botframework-emulator" target="_blank" rel="noreferrer">Get Emulator</a>
+          </div>
+          <p class="muted" style="margin-top:12px">Tip: Leave Microsoft App ID/Password empty for local testing.</p>
+        </div>
+
+        <div class="card right">
+          <h2>Utilities</h2>
+          <div class="row" style="margin-bottom:10px">
+            <a class="btn accent" href="/diagnostics" target="_blank" rel="noreferrer">Diagnostics</a>
+            <a class="btn" href="/routes" target="_blank" rel="noreferrer">Routes</a>
+          </div>
+          <p class="muted">This project uses CLU for intent/entity detection when configured via environment variables. If CLU isn’t configured, the bot falls back to echo.</p>
+        </div>
+      </section>
+
+      <footer>
+        <span>© <span id="year"></span> MyTravel Bot • CLU-enabled</span>
+      </footer>
+    </main>
+
+    <script>
+      (function() {
+        const $ = (id) => document.getElementById(id);
+        const dot = $("dot");
+        const statusText = $("status-text");
+        const copyBtn = $("copy");
+        const year = $("year");
+        year.textContent = new Date().getFullYear();
+
+        // Check diagnostics endpoint
+        fetch("/diagnostics").then(async (res) => {
+          if (res.ok) {
+            dot.classList.add("ok");
+            statusText.textContent = "Online";
+          } else {
+            dot.classList.add("err");
+            statusText.textContent = "Diagnostics error (" + res.status + ")";
+          }
+        }).catch(() => {
+          dot.classList.add("err");
+          statusText.textContent = "Offline";
+        });
+
+        // Copy Emulator URL
+        copyBtn.addEventListener("click", async () => {
+          const url = "http://localhost:3978/api/messages";
+          try {
+            await navigator.clipboard.writeText(url);
+            copyBtn.textContent = "Copied";
+            setTimeout(() => copyBtn.textContent = "Copy URL", 1400);
+          } catch (e) {
+            // Fallback
+            const ta = document.createElement("textarea");
+            ta.value = url; document.body.appendChild(ta); ta.select();
+            try { document.execCommand("copy"); } catch (_) {}
+            document.body.removeChild(ta);
+          }
+        });
+      })();
+    </script>
+</body>
+</html> 
+
+<!--################################################################################# -->
+ 
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -101,85 +416,11 @@
       footer { margin-top: 14px; text-align: center; color: var(--muted); font-size: 13px; }
     </style>
   </head>
-  <body>
-    <main class="container">
-      <section class="hero">
-        <div class="logo" aria-hidden="true">✈️</div>
-        <h1>MyTravel Bot</h1>
-        <p class="sub">Microsoft Bot Framework + Azure AI Language (Conversational Language Understanding)</p>
-        <div class="status" id="status"><span class="dot" id="dot"></span><span id="status-text">Checking status…</span></div>
-      </section>
-
-      <section class="grid">
-        <div class="card left">
-          <h2>Connect with Bot Framework Emulator</h2>
-          <p class="muted">Use the Emulator to chat with the bot locally.</p>
-          <div class="code" style="margin-top:10px">http://localhost:3978/api/messages</div>
-          <div class="row" style="margin-top:12px">
-            <button class="btn primary" id="copy">Copy URL</button>
-            <a class="btn link" href="https://aka.ms/botframework-emulator" target="_blank" rel="noreferrer">Get Emulator</a>
-          </div>
-          <p class="muted" style="margin-top:12px">Tip: Leave Microsoft App ID/Password empty for local testing.</p>
-        </div>
-
-        <div class="card right">
-          <h2>Utilities</h2>
-          <div class="row" style="margin-bottom:10px">
-            <a class="btn accent" href="/diagnostics" target="_blank" rel="noreferrer">Diagnostics</a>
-            <a class="btn" href="/routes" target="_blank" rel="noreferrer">Routes</a>
-          </div>
-          <p class="muted">This project uses CLU for intent/entity detection when configured via environment variables. If CLU isn’t configured, the bot falls back to echo.</p>
-        </div>
-      </section>
-
-      <footer>
-        <span>© <span id="year"></span> MyTravel Bot • CLU-enabled</span>
-      </footer>
-    </main>
-
-    <script>
-      (function() {
-        const $ = (id) => document.getElementById(id);
-        const dot = $("dot");
-        const statusText = $("status-text");
-        const copyBtn = $("copy");
-        const year = $("year");
-        year.textContent = new Date().getFullYear();
-
-        // Check diagnostics endpoint
-        fetch("/diagnostics").then(async (res) => {
-          if (res.ok) {
-            dot.classList.add("ok");
-            statusText.textContent = "Online";
-          } else {
-            dot.classList.add("err");
-            statusText.textContent = "Diagnostics error (" + res.status + ")";
-          }
-        }).catch(() => {
-          dot.classList.add("err");
-          statusText.textContent = "Offline";
-        });
-
-        // Copy Emulator URL
-        copyBtn.addEventListener("click", async () => {
-          const url = "http://localhost:3978/api/messages";
-          try {
-            await navigator.clipboard.writeText(url);
-            copyBtn.textContent = "Copied";
-            setTimeout(() => copyBtn.textContent = "Copy URL", 1400);
-          } catch (e) {
-            // Fallback
-            const ta = document.createElement("textarea");
-            ta.value = url; document.body.appendChild(ta); ta.select();
-            try { document.execCommand("copy"); } catch (_) {}
-            document.body.removeChild(ta);
-          }
-        });
-      })();
-    </script>
-  </body>
+  
 </html>
-<!doctype html>
+
+<!--################################################################################# -->
+
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -188,12 +429,9 @@
     <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
-    <header>
-      <h1 style="margin: 0;">MyTravel Bot</h1>
-      <span class="badge ok" id="sdk-status">Bot service is running</span>
-    </header>
+  
 
-    <p>Welcome! This is the local landing page for your bot service.</p>
+    <p>This is the local landing page for your bot service.</p>
 
     <h2>Endpoints</h2>
     <ul>
@@ -207,8 +445,7 @@
 curl -i -X OPTIONS http://localhost:3978/api/messages
 curl -i -X POST http://localhost:3978/api/messages -H "Content-Type: application/json" -d '{"type":"message","text":"hello","serviceUrl":"http://localhost:3978","from":{"id":"user"}, "recipient":{"id":"bot"}, "conversation":{"id":"conv1"}, "channelId":"emulator"}'</code></pre>
 
-    <h2>Bot Framework Emulator</h2>
-    <p>Connect to <code>http://localhost:3978/api/messages</code>. Leave App ID/Password empty for local testing.</p>
+
 
     <h2>See You on Your Next Journey</h2>
     <p>Happy FlyME Holiday.</p>

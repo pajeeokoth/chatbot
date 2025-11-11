@@ -193,7 +193,8 @@ async def handle_messages(request: web.Request) -> web.Response:
     raw_text = None
     
     # Only attempt JSON parse if content-type is explicitly JSON
-    if "application/json" in (request.content_type or "").lower():
+    # if "application/json" in (request.content_type or "").lower():
+    if (request.content_type or "").lower().startswith("application/json"):
         try:
             body = await request.json()
         except Exception as e:  # noqa: BLE001
