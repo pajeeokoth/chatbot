@@ -53,6 +53,8 @@ CLU_DEPLOYMENT_NAME=""
 CLU_API_KEY=""
 CLU_ENDPOINT=""
 ```
+
+```
 # Bot Framework credentials (leave empty for local Emulator)
 MICROSOFT_APP_ID=
 MICROSOFT_APP_PASSWORD=
@@ -62,7 +64,7 @@ CLU_PROJECT_NAME=
 CLU_DEPLOYMENT_NAME=
 CLU_API_KEY=
 CLU_ENDPOINT=  # e.g., https://your-resource.cognitiveservices.azure.com
-
+```
 
 Notes:
 - `CLU_ENDPOINT` must include `https://` and no trailing slash.
