@@ -182,6 +182,13 @@ async def handle_messages(request: web.Request) -> web.Response:
     except Exception as e:
         logging.warning("Activity deserialization failed: %s", e)
         return web.Response(status=200, text=f"Could not parse activity: {str(e)[:100]}")
+    
+    # -----------------------------
+    # 🔥 DEV TUNNEL SERVICE URL OVERRIDE
+    # -----------------------------
+    DEV_TUNNEL_URL = os.getenv("DEV_TUNNEL_URL", "https://purple-deer-1234.devtunnels.ms")  # replace with your actual tunnel
+    activity.service_url = DEV_TUNNEL_URL
+    # -----------------------------
 
     # Process via adapter
     async def aux(turn: TurnContext):
@@ -420,4 +427,3 @@ app.router.add_route("*", "/{tail:.*}", catch_all)
 if __name__ == "__main__":
     logging.info("Starting MyTravel Bot on 0.0.0.0:3978")
     web.run_app(app, host="0.0.0.0", port=3978)
-
