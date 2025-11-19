@@ -16,6 +16,11 @@ load_dotenv(DOTENV_PATH, override=True)
 # In-memory error log buffer
 ERROR_LOG_BUFFER = deque(maxlen=50)
 
+# -----------------------------
+# environment processing functions 
+# _normalize_env_aliases, _postprocess_env, _clu_config_warnings, _mask
+# -----------------------------
+
 def _normalize_env_aliases() -> None:
     """Normalize lowercase env var aliases to uppercase."""
     for primary, alt in [
@@ -99,12 +104,15 @@ def _mask(value: str | None) -> str:
         return "****"
     return value[:2] + "****" + value[-2:]
 
-
+# ----------------------------
 # Initialize environment
+# ----------------------------
 _normalize_env_aliases()
 _postprocess_env()
 
+# -----------------------------------
 # Initialize Bot Framework components
+# -----------------------------------
 BOT_AVAILABLE = False
 AUTH_ENABLED = False
 _IMPORT_ERROR = ""
@@ -131,6 +139,12 @@ except Exception:
     _IMPORT_ERROR = traceback.format_exc()
     logging.error("Bot initialization failed:\n%s", _IMPORT_ERROR)
 
+# ----------------------------------------------------
+# Define all handlers
+# serve_index, handle_messages, health, 
+# diagnostics, routes_info, logs_info, 
+# debug_clu, serve_favicon, catch_all, log_middleware
+# ----------------------------------------------------
 
 async def handle_messages(request: web.Request) -> web.Response:
     """Handle Bot Framework messages endpoint."""
@@ -141,6 +155,7 @@ async def handle_messages(request: web.Request) -> web.Response:
     if request.method != "POST":
         return web.Response(text="Use POST with application/json to send a Bot Framework Activity.")
 
+    global BOT_AVAILABLE, bot, adapter
     if not BOT_AVAILABLE:
         msg = ["Bot unavailable (imports failed).", "Install: pip install -r mytravel/requirements.txt", "Check /diagnostics for details."]
         if _IMPORT_ERROR:
@@ -182,6 +197,14 @@ async def handle_messages(request: web.Request) -> web.Response:
     except Exception as e:
         logging.warning("Activity deserialization failed: %s", e)
         return web.Response(status=200, text=f"Could not parse activity: {str(e)[:100]}")
+    # from .adapter import adapter, bot, BOT_AVAILABLE, SimpleTurnContext
+
+    # -----------------------------
+    # 🔥 DEV TUNNEL SERVICE URL OVERRIDE
+    # -----------------------------
+    DEV_TUNNEL_URL = os.getenv("DEV_TUNNEL_URL", "https://purple-deer-1234.devtunnels.ms")  # actual tunnel
+    activity.service_url = DEV_TUNNEL_URL
+    # -----------------------------
 
     # Process via adapter
     async def aux(turn: TurnContext):
@@ -372,8 +395,9 @@ class BufferHandler(logging.Handler):
             except Exception:
                 pass
 
-
+# -----------------------------
 # Configure logging
+# -----------------------------
 logging.basicConfig(level=logging.INFO)
 logging.getLogger().addHandler(BufferHandler())
 
@@ -396,28 +420,40 @@ async def catch_all(request: web.Request) -> web.Response:
         return await serve_index(request)
     return web.Response(text="OK")
 
+# -----------------------------
+# App factory
+# -----------------------------
 
-# Create app and register routes
-app = web.Application(middlewares=[log_middleware])
-app.router.add_static("/static/", path=str(Path(__file__).parent / "static"), name="static")
-app.router.add_get("/", serve_index)
-app.router.add_get("/index.html", serve_index)
-app.router.add_get("/favicon.ico", serve_favicon)
+def create_app() -> web.Application:
+    """Application factory used by tests and main entrypoint."""
+    app = web.Application(middlewares=[log_middleware])
+    app.router.add_static("/static/", path=str(Path(__file__).parent / "static"), name="static")
+    app.router.add_get("/", serve_index)
+    app.router.add_get("/index.html", serve_index)
+    app.router.add_get("/favicon.ico", serve_favicon)
 
-for base in ["/api/messages", "/api/messages/"]:
-    app.router.add_route("GET", base, handle_messages)
-    app.router.add_route("POST", base, handle_messages)
-    app.router.add_route("OPTIONS", base, handle_messages)
+    for base in ["/api/messages", "/api/messages/"]:
+        app.router.add_route("GET", base, handle_messages)
+        app.router.add_route("POST", base, handle_messages)
+        app.router.add_route("OPTIONS", base, handle_messages)
 
-app.router.add_get("/diagnostics", diagnostics)
-app.router.add_get("/routes", routes_info)
-app.router.add_get("/logs", logs_info)
-app.router.add_get("/health", health)
-app.router.add_get("/debug-clu", debug_clu)
-app.router.add_route("*", "/{tail:.*}", catch_all)
+    app.router.add_get("/diagnostics", diagnostics)
+    app.router.add_get("/routes", routes_info)
+    app.router.add_get("/logs", logs_info)
+    app.router.add_get("/health", health)
+    app.router.add_get("/debug-clu", debug_clu)
+    app.router.add_route("*", "/{tail:.*}", catch_all)
+
+    return app
 
 
+# Default app instance for running via `python mytravel/app.py`
+app = create_app()
+
+
+# -----------------------------
+# Run standalone
+# -----------------------------
 if __name__ == "__main__":
     logging.info("Starting MyTravel Bot on 0.0.0.0:3978")
     web.run_app(app, host="0.0.0.0", port=3978)
-
