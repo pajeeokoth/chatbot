@@ -16,6 +16,11 @@ load_dotenv(DOTENV_PATH, override=True)
 # In-memory error log buffer
 ERROR_LOG_BUFFER = deque(maxlen=50)
 
+# -----------------------------
+# environment processing functions 
+# _normalize_env_aliases, _postprocess_env, _clu_config_warnings, _mask
+# -----------------------------
+
 def _normalize_env_aliases() -> None:
     """Normalize lowercase env var aliases to uppercase."""
     for primary, alt in [
@@ -99,12 +104,15 @@ def _mask(value: str | None) -> str:
         return "****"
     return value[:2] + "****" + value[-2:]
 
-
+# ----------------------------
 # Initialize environment
+# ----------------------------
 _normalize_env_aliases()
 _postprocess_env()
 
+# -----------------------------------
 # Initialize Bot Framework components
+# -----------------------------------
 BOT_AVAILABLE = False
 AUTH_ENABLED = False
 _IMPORT_ERROR = ""
@@ -131,6 +139,12 @@ except Exception:
     _IMPORT_ERROR = traceback.format_exc()
     logging.error("Bot initialization failed:\n%s", _IMPORT_ERROR)
 
+# ----------------------------------------------------
+# Define all handlers
+# serve_index, handle_messages, health, 
+# diagnostics, routes_info, logs_info, 
+# debug_clu, serve_favicon, catch_all, log_middleware
+# ----------------------------------------------------
 
 async def handle_messages(request: web.Request) -> web.Response:
     """Handle Bot Framework messages endpoint."""
@@ -182,11 +196,12 @@ async def handle_messages(request: web.Request) -> web.Response:
     except Exception as e:
         logging.warning("Activity deserialization failed: %s", e)
         return web.Response(status=200, text=f"Could not parse activity: {str(e)[:100]}")
-    
+    from .adapter import adapter, bot, BOT_AVAILABLE, SimpleTurnContext
+
     # -----------------------------
     # 🔥 DEV TUNNEL SERVICE URL OVERRIDE
     # -----------------------------
-    DEV_TUNNEL_URL = os.getenv("DEV_TUNNEL_URL", "https://purple-deer-1234.devtunnels.ms")  # replace with your actual tunnel
+    DEV_TUNNEL_URL = os.getenv("DEV_TUNNEL_URL", "https://purple-deer-1234.devtunnels.ms")  # actual tunnel
     activity.service_url = DEV_TUNNEL_URL
     # -----------------------------
 
@@ -379,8 +394,9 @@ class BufferHandler(logging.Handler):
             except Exception:
                 pass
 
-
+# -----------------------------
 # Configure logging
+# -----------------------------
 logging.basicConfig(level=logging.INFO)
 logging.getLogger().addHandler(BufferHandler())
 
@@ -403,8 +419,11 @@ async def catch_all(request: web.Request) -> web.Response:
         return await serve_index(request)
     return web.Response(text="OK")
 
-
+# -----------------------------
+# App factory
 # Create app and register routes
+# -----------------------------
+
 app = web.Application(middlewares=[log_middleware])
 app.router.add_static("/static/", path=str(Path(__file__).parent / "static"), name="static")
 app.router.add_get("/", serve_index)
@@ -424,6 +443,9 @@ app.router.add_get("/debug-clu", debug_clu)
 app.router.add_route("*", "/{tail:.*}", catch_all)
 
 
+# -----------------------------
+# Run standalone
+# -----------------------------
 if __name__ == "__main__":
     logging.info("Starting MyTravel Bot on 0.0.0.0:3978")
     web.run_app(app, host="0.0.0.0", port=3978)
