@@ -7,6 +7,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from collections import deque
 from datetime import datetime
+from opencensus.ext.azure.log_exporter import AzureLogHandler
+from opencensus.ext.azure.trace_exporter import AzureExporter
+from opencensus.trace import config_integration
+from opencensus.trace.tracer import Tracer
+from opencensus.trace.samplers import ProbabilitySampler
 
 # Load environment variables
 DOTENV_PATH = Path(__file__).with_name(".env")
@@ -140,6 +145,31 @@ except Exception:
     logging.error("Bot initialization failed:\n%s", _IMPORT_ERROR)
 
 # ----------------------------------------------------
+# Configure Opencesus Telemetry
+# ----------------------------------------------------
+APPINSIGHTS_CONN = os.getenv("APPINSIGHTS_CONNECTION_STRING", "").strip()
+
+if APPINSIGHTS_CONN:
+    # Enable automatic outgoing HTTP dependency tracking
+    # config_integration.trace_integrations(["requests", "aiohttp"])
+    config_integration.trace_integrations(["requests"])
+
+    # Configure logging to send to App Insights
+    ai_log_handler = AzureLogHandler(
+        connection_string=APPINSIGHTS_CONN
+    )
+    ai_log_handler.setLevel(logging.INFO)
+    logging.getLogger().addHandler(ai_log_handler)
+
+    # Tracer for custom spans
+    tracer = Tracer(
+        exporter=AzureExporter(connection_string=APPINSIGHTS_CONN),
+        sampler=ProbabilitySampler(1.0),  # 100% sampling; lower in heavy prod
+    )
+else:
+    tracer = None
+
+# ----------------------------------------------------
 # Define all handlers
 # serve_index, handle_messages, health, 
 # diagnostics, routes_info, logs_info, 
@@ -197,7 +227,22 @@ async def handle_messages(request: web.Request) -> web.Response:
     except Exception as e:
         logging.warning("Activity deserialization failed: %s", e)
         return web.Response(status=200, text=f"Could not parse activity: {str(e)[:100]}")
-    # from .adapter import adapter, bot, BOT_AVAILABLE, SimpleTurnContext
+    
+    # Custom telemetry: log incoming activity
+    logging.info(
+        "ChatbotActivity | type=%s | channel=%s | from=%s | text=%s",
+        getattr(activity, "type", None),
+        getattr(activity, "channel_id", None),
+        getattr(getattr(activity, "from_property", None), "id", None),
+        (getattr(activity, "text", "") or "")[:200],
+    )
+
+    if tracer:
+        with tracer.span(name="handle_messages") as span:
+            span.add_attribute("chatbot.activity.type", activity.type)
+            span.add_attribute("chatbot.channel", activity.channel_id)
+            span.add_attribute("chatbot.user_id", activity.from_property.id if activity.from_property else None)
+            span.add_attribute("chatbot.text", (activity.text or "")[:200])
 
     # -----------------------------
     # 🔥 DEV TUNNEL SERVICE URL OVERRIDE
@@ -366,21 +411,40 @@ async def debug_clu(request: web.Request) -> web.Response:
 @web.middleware
 async def log_middleware(request: web.Request, handler):
     """Log requests and handle exceptions."""
-    logging.info("%s %s", request.method, request.path_qs)
+    start = datetime.now()
+    path = request.path
+    method = request.method
+
     try:
         resp = await handler(request)
-        logging.info("%s -> %s", request.path, resp.status)
+        duration_ms = (datetime.now() - start).total_seconds() * 1000
+        logging.info(
+            "HttpRequest | method=%s | path=%s | status=%s | duration_ms=%.2f",
+            method,
+            path,
+            resp.status,
+            duration_ms,
+        )
         return resp
     except web.HTTPException as http_err:
-        if http_err.status == 404:
-            logging.info("404 Not Found: %s", request.path_qs)
-        else:
-            logging.warning("HTTPException %s on %s", http_err.status, request.path_qs)
+        duration_ms = (datetime.now() - start).total_seconds() * 1000
+        logging.warning(
+            "HttpRequestError | method=%s | path=%s | status=%s | duration_ms=%.2f",
+            method,
+            path,
+            http_err.status,
+            duration_ms,
+        )
         raise
     except Exception:
-        logging.exception("Unhandled server error")
+        duration_ms = (datetime.now() - start).total_seconds() * 1000
+        logging.exception(
+            "HttpRequestException | method=%s | path=%s | duration_ms=%.2f",
+            method,
+            path,
+            duration_ms,
+        )
         raise
-
 
 class BufferHandler(logging.Handler):
     """Capture warnings and errors in memory."""

@@ -15,3 +15,8 @@ botbuilder-ai>=4.16.0,<5.0
 
 python-dotenv==1.0.0
 requests==2.31.0
+
+# OpenCensus for telemetry
+opencensus-ext-azure
+opencensus-ext-logging
+opencensus-ext-requests

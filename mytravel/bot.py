@@ -75,6 +75,14 @@ class TravelBot(ActivityHandler):
             if ent_fmt:
                 msg += f" | entities={ent_fmt}"
             logging.info(f"Sending CLU response: {msg}")
+            #---------------------------------
+            logging.info(
+                "CLUResult | intent=%s | confidence=%s | entities=%s",
+                top,
+                conf,
+                ent_fmt,
+            )
+            #-------------------------------
             await turn_context.send_activity(msg)
         except Exception as e:  # noqa: BLE001
             logging.warning("CLU error (fallback to echo): %s", e)
