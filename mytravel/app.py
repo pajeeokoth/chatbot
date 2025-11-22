@@ -398,23 +398,29 @@ async def catch_all(request: web.Request) -> web.Response:
 
 
 # Create app and register routes
-app = web.Application(middlewares=[log_middleware])
-app.router.add_static("/static/", path=str(Path(__file__).parent / "static"), name="static")
-app.router.add_get("/", serve_index)
-app.router.add_get("/index.html", serve_index)
-app.router.add_get("/favicon.ico", serve_favicon)
+def create_app() -> web.Application:
+    app = web.Application(middlewares=[log_middleware])
+    app.router.add_static("/static/", path=str(Path(__file__).parent / "static"), name="static")
+    app.router.add_get("/", serve_index)
+    app.router.add_get("/index.html", serve_index)
+    app.router.add_get("/favicon.ico", serve_favicon)
 
-for base in ["/api/messages", "/api/messages/"]:
-    app.router.add_route("GET", base, handle_messages)
-    app.router.add_route("POST", base, handle_messages)
-    app.router.add_route("OPTIONS", base, handle_messages)
+    for base in ["/api/messages", "/api/messages/"]:
+        app.router.add_route("GET", base, handle_messages)
+        app.router.add_route("POST", base, handle_messages)
+        app.router.add_route("OPTIONS", base, handle_messages)
 
-app.router.add_get("/diagnostics", diagnostics)
-app.router.add_get("/routes", routes_info)
-app.router.add_get("/logs", logs_info)
-app.router.add_get("/health", health)
-app.router.add_get("/debug-clu", debug_clu)
-app.router.add_route("*", "/{tail:.*}", catch_all)
+    app.router.add_get("/diagnostics", diagnostics)
+    app.router.add_get("/routes", routes_info)
+    app.router.add_get("/logs", logs_info)
+    app.router.add_get("/health", health)
+    app.router.add_get("/debug-clu", debug_clu)
+    app.router.add_route("*", "/{tail:.*}", catch_all)
+
+    return app
+
+
+app = create_app()
 
 
 if __name__ == "__main__":
