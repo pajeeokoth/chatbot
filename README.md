@@ -76,6 +76,26 @@ python mytravel/app.py
 ```
 The server listens on `http://localhost:3978`.
 
+## Monitoring in production
+Use the helper script `tools/app_insights_monitor.py` to run Kusto queries against your Application Insights resource and keep an eye on intent volume or server errors.
+
+1. Create or export these environment variables before running the script:
+	```bash
+	export AZURE_APP_INSIGHTS_RESOURCE_ID="/subscriptions/.../resourceGroups/.../providers/microsoft.insights/components/YourAppInsights"
+	export AZURE_CLIENT_ID=...
+	export AZURE_TENANT_ID=...
+	export AZURE_CLIENT_SECRET=...
+	```
+
+2. Run one of the canned queries:
+	```bash
+	python tools/app_insights_monitor.py intents --days 3
+	python tools/app_insights_monitor.py errors --days 1
+	python tools/app_insights_monitor.py error-breakdown --top 12
+	```
+
+The tool uses `azure.monitor.query.LogsQueryClient` with [`DefaultAzureCredential`](https://learn.microsoft.com/azure/developer/python/azure-sdk-authenticate?tabs=cmd) so it works with managed identities, VS Code/CLI sign-in, or service principals.
+
 ## Test with Emulator
 - Endpoint URL: `http://localhost:3978/api/messages`
 - Microsoft App ID: leave empty for local
