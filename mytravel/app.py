@@ -422,10 +422,11 @@ async def catch_all(request: web.Request) -> web.Response:
 
 # -----------------------------
 # App factory
+# Create app and register routes
 # -----------------------------
 
+
 def create_app() -> web.Application:
-    """Application factory used by tests and main entrypoint."""
     app = web.Application(middlewares=[log_middleware])
     app.router.add_static("/static/", path=str(Path(__file__).parent / "static"), name="static")
     app.router.add_get("/", serve_index)
