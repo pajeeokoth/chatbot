@@ -1,5 +1,6 @@
 """Slim aiohttp host for MyTravel Bot (CLU + Bot Framework)."""
 
+import asyncio
 import os, sys, logging, traceback, json
 from urllib.parse import urlparse
 from aiohttp import web
@@ -12,6 +13,7 @@ from opencensus.ext.azure.trace_exporter import AzureExporter
 from opencensus.trace import config_integration
 from opencensus.trace.tracer import Tracer
 from opencensus.trace.samplers import ProbabilitySampler
+# from .telemetry import init_azure_monitor, track_event, get_tracer # Initialize Azure Monitor telemetry(acct-chat)
 
 # Load environment variables
 DOTENV_PATH = Path(__file__).with_name(".env")
@@ -181,10 +183,12 @@ async def handle_messages(request: web.Request) -> web.Response:
     if request.method == "GET":
         return web.Response(text="Bot endpoint. Send POST Bot Framework activities to /api/messages")
     if request.method == "OPTIONS":
-        return web.Response(status=200)
+        # return web.Response(status=200)
+        return web.Response(status=200, text="OK")
     if request.method != "POST":
         return web.Response(text="Use POST with application/json to send a Bot Framework Activity.")
 
+    # from .adapter import adapter, bot, BOT_AVAILABLE, SimpleTurnContext
     global BOT_AVAILABLE, bot, adapter
     if not BOT_AVAILABLE:
         msg = ["Bot unavailable (imports failed).", "Install: pip install -r mytravel/requirements.txt", "Check /diagnostics for details."]
@@ -255,31 +259,70 @@ async def handle_messages(request: web.Request) -> web.Response:
     async def aux(turn: TurnContext):
         await bot.on_turn(turn)
     
+    # try:
+    #     await adapter.process_activity(activity, request.headers.get("Authorization", ""), aux)
+    #     return web.Response(status=200)
+    # except Exception as e:
+    #     # Fallback: bypass adapter and call bot directly
+    #     logging.warning("Adapter error, using direct handler: %s", e)
+    #     try:
+    #         class SimpleTurnContext:
+    #             def __init__(self, act):
+    #                 self.activity = act
+    #                 self._responses = []
+    #             async def send_activity(self, text_or_activity):
+    #                 if isinstance(text_or_activity, str):
+    #                     self._responses.append(text_or_activity)
+    #                 else:
+    #                     self._responses.append(getattr(text_or_activity, 'text', str(text_or_activity)))
+            
+    #         ctx = SimpleTurnContext(activity)
+    #         await bot.on_message_activity(ctx)
+    #         reply = "\n".join(ctx._responses) if ctx._responses else "OK"
+    #         return web.Response(status=200, text=reply)
+    #     except Exception as inner:
+    #         logging.exception("Direct bot handler failed: %s", inner)
+    #         return web.Response(status=200, text=f"Bot error: {str(inner)[:150]}")
+# ----------------------------------------------------------------------------------------------------
     try:
-        await adapter.process_activity(activity, request.headers.get("Authorization", ""), aux)
-        return web.Response(status=200)
+        # Protect adapter call with a timeout so it can't hang indefinitely
+        await asyncio.wait_for(
+            adapter.process_activity(
+                activity,
+                request.headers.get("Authorization", ""),
+                aux,
+            ),
+            timeout=10.0,  # seconds
+        )
+        return web.Response(status=200, text="OK from adapter")
     except Exception as e:
-        # Fallback: bypass adapter and call bot directly
         logging.warning("Adapter error, using direct handler: %s", e)
         try:
             class SimpleTurnContext:
                 def __init__(self, act):
                     self.activity = act
                     self._responses = []
+
                 async def send_activity(self, text_or_activity):
                     if isinstance(text_or_activity, str):
                         self._responses.append(text_or_activity)
                     else:
-                        self._responses.append(getattr(text_or_activity, 'text', str(text_or_activity)))
-            
+                        self._responses.append(
+                            getattr(text_or_activity, "text", str(text_or_activity))
+                        )
+
             ctx = SimpleTurnContext(activity)
             await bot.on_message_activity(ctx)
             reply = "\n".join(ctx._responses) if ctx._responses else "OK"
             return web.Response(status=200, text=reply)
         except Exception as inner:
             logging.exception("Direct bot handler failed: %s", inner)
-            return web.Response(status=200, text=f"Bot error: {str(inner)[:150]}")
-
+            return web.Response(
+                status=200,
+                text=f"Bot error: {str(inner)[:150]}",
+            )
+# ----------------------------------------------------------------------------------------------------
+    
 
 async def serve_index(request: web.Request) -> web.Response:
     """Serve index.html or fallback text."""

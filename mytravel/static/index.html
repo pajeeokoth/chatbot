@@ -47,6 +47,7 @@
     const messages = document.getElementById('messages');
     const input = document.getElementById('messageInput');
     const sendBtn = document.getElementById('sendBtn');
+    console.log('init', { messages, input, sendBtn }); // removed --- IGNORE ---
 
     function addMessage(text, type) {
       const div = document.createElement('div');
@@ -65,7 +66,7 @@
 
       addMessage(text, 'user');
       input.value = '';
-      sendBtn.disabled = true;
+      // sendBtn.disabled = true; // remember to re-enable later
 
       try {
         const res = await fetch('/api/messages', {
@@ -83,13 +84,22 @@
           })
         });
 
+        // const reply = await res.text();
+        // if (res.ok && reply) {
+        //   addMessage(reply, 'bot');
+        // } else {
+        //   addMessage('Error: ' + reply, 'error');
+        // }
         const reply = await res.text();
-        if (res.ok && reply) {
-          addMessage(reply, 'bot');
+        if (res.ok) {
+          // Show a friendly default if body is empty
+          addMessage(reply || 'OK', 'bot');
         } else {
-          addMessage('Error: ' + reply, 'error');
+            addMessage('Error: ' + (reply || res.status), 'error');
         }
+
       } catch (err) {
+        console.error(err); // remove when done
         addMessage('Connection error', 'error');
       } finally {
         sendBtn.disabled = false;
@@ -97,10 +107,32 @@
       }
     }
 
-    sendBtn.onclick = sendMessage;
-    input.onkeypress = (e) => {
-      if (e.key === 'Enter') sendMessage();
-    };
+    // sendBtn.onclick = sendMessage;
+    // input.onkeypress = (e) => {
+    //   if (e.key === 'Enter') sendMessage();
+    // };
+
+    //---- REOMOVE WHEN DONE ---
+    sendBtn.onclick = async () => {
+      sendBtn.disabled = true;
+      try {
+        await sendMessage();
+        } finally {
+          sendBtn.disabled = false;
+          }
+        };
+
+    input.onkeypress = async (e) => {
+      if (e.key === 'Enter') {
+        sendBtn.disabled = true;
+        try {
+          await sendMessage();
+          } finally {
+            sendBtn.disabled = false;
+            }
+          }
+        };
+        //---- REOMOVE WHEN DONE ---
   </script>
   <main class="container">
       <section class="hero"> 
