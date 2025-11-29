@@ -11,10 +11,14 @@ from mytravel.app import create_app
 
 @pytest_asyncio.fixture
 async def client(aiohttp_client):
+    """Return aiohttp test client for the app."""
     app = create_app()
     return await aiohttp_client(app)
 
 
+# ---------------------------------------------------------------------
+# 1. Basic health smoke test: response returns 200
+# ---------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_health_endpoint(client):
     resp = await client.get("/health")
@@ -22,7 +26,9 @@ async def test_health_endpoint(client):
     text = await resp.text()
     assert "OK" in text
 
-
+# ---------------------------------------------------------------------
+# 2. Basic Index page test: response contains title
+# ---------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_index_page_contains_title(client):
     resp = await client.get("/")
@@ -31,6 +37,9 @@ async def test_index_page_contains_title(client):
     assert "MyTravel Bot" in text
 
 
+# ---------------------------------------------------------------------
+# 3. Basic POST smoke test: /api/messages returns 200
+# ---------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_post_messages_returns_ok(client):
     payload = {
