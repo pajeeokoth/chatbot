@@ -13,9 +13,11 @@ from botbuilder.core import ActivityHandler, TurnContext
 try:  # optional CLU import
     from azure.core.credentials import AzureKeyCredential  # type: ignore
     from azure.ai.language.conversations import ConversationAnalysisClient  # type: ignore
+    from azure.core.exceptions import HttpResponseError  # type: ignore
 except Exception:  # noqa: BLE001
     ConversationAnalysisClient = None  # type: ignore
     AzureKeyCredential = None  # type: ignore
+    HttpResponseError = Exception  # type: ignore
 
 
 class TravelBot(ActivityHandler):
@@ -76,6 +78,34 @@ class TravelBot(ActivityHandler):
                 msg += f" | entities={ent_fmt}"
             logging.info(f"Sending CLU response: {msg}")
             await turn_context.send_activity(msg)
+        except HttpResponseError as e:  # detailed HTTP error from Azure SDK
+            # Try to extract and log HTTP response details for diagnostics
+            try:
+                resp = getattr(e, "response", None)
+                status = None
+                headers = None
+                body = None
+                if resp is not None:
+                    status = getattr(resp, "status_code", None) or getattr(resp, "status", None)
+                    headers = getattr(resp, "headers", {}) or {}
+                    # attempt to read textual body safely
+                    try:
+                        if callable(getattr(resp, "text", None)):
+                            body = resp.text()
+                        else:
+                            body = getattr(resp, "text", None) or getattr(resp, "content", None)
+                    except Exception:
+                        try:
+                            body = getattr(resp, "content", None)
+                        except Exception:
+                            body = None
+                logging.error("CLU HttpResponseError status=%s headers=%s body_snippet=%s", status, dict(headers) if hasattr(headers, 'items') else headers, (body or "")[:1000])
+            except Exception:
+                logging.exception("Error while extracting HttpResponseError details")
+            logging.warning("CLU HttpResponseError: %s", e)
+            response = f"(Echo) {text}\nCLU error: {str(e)[:120]}"
+            logging.info(f"Sending error fallback: {response}")
+            await turn_context.send_activity(response)
         except Exception as e:  # noqa: BLE001
             logging.warning("CLU error (fallback to echo): %s", e)
             response = f"(Echo) {text}\nCLU error: {str(e)[:120]}"

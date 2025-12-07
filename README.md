@@ -96,6 +96,134 @@ Use the helper script `tools/app_insights_monitor.py` to run Kusto queries again
 
 The tool uses `azure.monitor.query.LogsQueryClient` with [`DefaultAzureCredential`](https://learn.microsoft.com/azure/developer/python/azure-sdk-authenticate?tabs=cmd) so it works with managed identities, VS Code/CLI sign-in, or service principals.
 
+**Telemetry / OpenTelemetry**
+
+- **Purpose:** Configure the app to send OpenTelemetry traces to Application Insights (traces) and fall back to a legacy log handler when logs exporter isn't available.
+- **Enable:** Add an Application Insights connection string to `mytravel/.env` using one of these keys:
+	- `APPLICATIONINSIGHTS_CONNECTION_STRING` or `APPINSIGHTS_CONNECTION_STRING`.
+- **Install packages (local venv):**
+
+	```bash
+	python -m pip install opentelemetry-api opentelemetry-sdk azure-monitor-opentelemetry-exporter
+	```
+
+- **What the app does:** When a connection string is present, `mytravel/app.py` attempts to configure OpenTelemetry tracing (Azure Monitor exporter). It also tries to wire an OpenTelemetry logs exporter when the installed `opentelemetry-sdk` supports it; otherwise it attaches the legacy `opencensus.ext.azure.log_exporter.AzureLogHandler` as a best-effort fallback.
+- **Quick test:** Start the app and call the test endpoint to emit a span and log:
+
+	```bash
+	python mytravel/app.py
+	curl http://localhost:3978/telemetry-test
+	```
+
+- **Verify ingestion (KQL):** Use `tools/app_insights_monitor.py` or the LogsQueryClient snippet to check counts. Common queries:
+
+	- Traces:
+		```kusto
+		traces | where timestamp > ago(1d) | summarize c = count()
+		```
+	- Requests:
+		```kusto
+		requests | where timestamp > ago(1d) | summarize c = count()
+		```
+	- Dependencies:
+		```kusto
+		dependencies | where timestamp > ago(1d) | summarize c = count()
+		```
+
+- **Note on tables:** Depending on exporter mapping and SDK versions, spans may appear under `dependencies` or `traces`. If you see zero `traces` but non-zero `dependencies`, include both in your dashboards/alerts.
+- **Troubleshooting import errors:** If you see errors like `ImportError: cannot import name 'set_logger_provider'`, the README's wiring is designed to tolerate different `opentelemetry-sdk` versions. To help diagnose your environment, run:
+
+	```bash
+	python -m pip show opentelemetry-sdk azure-monitor-opentelemetry-exporter opentelemetry-api
+
+	# Optional diagnostic script
+	python - <<'PY'
+	import importlib
+	mods = ['opentelemetry', 'opentelemetry.sdk', 'opentelemetry.sdk._logs', 'azure.monitor.opentelemetry.exporter']
+	for m in mods:
+			try:
+					mod = importlib.import_module(m)
+					print(m, '->', getattr(mod, '__version__', 'no __version__'))
+			except Exception as e:
+					print(m, 'import failed:', e)
+	PY
+	```
+
+	If the logs exporter is not available for your SDK version, the app will fall back to `AzureLogHandler` for logs and continue sending traces.
+
+- **Permissions for querying:** `tools/app_insights_monitor.py` uses `DefaultAzureCredential`. Ensure one of these is available:
+	- `az login` (CLI) for developer scenarios
+	- Service principal credentials in `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_SECRET`
+
+Add or update these values in `mytravel/.env` as needed before running the monitor tools.
+
+### Open workbook & pin visuals to dashboard
+
+After you create a Workbook with `tools/create_workbook.py` the workbook appears as an ARM resource. To open it and pin visuals to a portal dashboard:
+
+- Open the workbook resource in the Azure Portal using the resource id printed by the script (or the URL shown after creation). Example:
+
+```text
+https://portal.azure.com/#@/resource/subscriptions/<sub>/resourcegroups/<rg>/providers/microsoft.insights/workbooks/<workbook-id>
+```
+
+- Open the workbook and click `Edit` (top menu) to enable editing mode.
+
+- For each visual or query tile you want on a dashboard:
+	- Hover the tile and click the small pin icon (Pin to dashboard) or use the tile's menu (•••) → `Pin to dashboard`.
+	- Choose an existing dashboard or create a new one, then select the tile size/position options the portal shows.
+
+- After pinning the desired visuals, open the Dashboard (via the portal left-nav or the link the pin dialog provided) and rearrange tiles if needed.
+
+- Save the dashboard (top-right `Save`) so the pinned tiles remain available for your team.
+
+Notes and alternatives:
+- You can also pin Logs results directly from the Logs (Analytics) blade: run a query → `Pin to dashboard` → choose dashboard and tile layout.
+- If pinning programmatically is required, consider generating dashboard ARM JSON parts that reference workbook/query deep-links — this is more involved and fragile across portal versions; the helper `tools/pin_dashboard.py` creates markdown-link tiles as a stable alternative.
+
+
+## Alerts (Action Group + Scheduled Query Rules)
+
+I added an ARM template that creates an Action Group you can attach to alert rules. The template is at `azure/action_group_template.json`.
+
+To create alerts (scheduled log alerts) in the Portal:
+
+1. Create an Action Group (quick):
+	 ```bash
+	 az deployment group create \
+		 --resource-group <your-rg> \
+		 --template-file azure/action_group_template.json \
+		 --parameters actionGroupName=MyTravelAlerts emailAddress=ops@example.com
+	 ```
+
+2. In the Portal: Application Insights → Logs, paste one of the queries from `tools/app_insights_monitor.py`, run it to confirm results, then click `New alert rule` → `Create` → choose `Custom log search` and point it to the same App Insights resource. For the action, select the Action Group you created.
+
+Suggested alert rules to create (KQL):
+
+- Errors over time (fire when any error in 5m window):
+
+```kusto
+traces
+| where timestamp > ago(5m)
+| where severityLevel >= 2
+| summarize hits = count()
+| where hits > 0
+```
+
+- CLU failures (fire when CLU errors appear):
+
+```kusto
+traces
+| where message has "CLU error (fallback to echo)"
+| where timestamp > ago(10m)
+| summarize count() by bin(timestamp, 5m)
+| where count_ > 0
+```
+
+3. Configure evaluation frequency and action group notifications in the alert rule.
+
+If you want, I can also create a template for the scheduled query alert rules themselves but that requires more precise parameters (scopes, evaluation frequency) so tell me the frequency and thresholds you prefer and I will produce the ARM/az CLI commands for those rules.
+
 ## Test with Emulator
 - Endpoint URL: `http://localhost:3978/api/messages`
 - Microsoft App ID: leave empty for local

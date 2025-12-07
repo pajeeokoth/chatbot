@@ -34,26 +34,97 @@ traces
 | top {top} by hits
 '''
 
+# Dependency-specific queries: some telemetry may be mapped into `dependencies` table
+# and has different columns (e.g., `name`, `data`, `properties`). These queries
+# attempt to detect CLU-related messages by searching common fields for the
+# CLUResult marker and then summarize similarly to the traces queries.
+DEP_INTENT_QUERY = '''
+dependencies
+| where timestamp > ago({days}d)
+| search "CLUResult"
+| summarize hits = count() by bin(timestamp, 1h), name
+| order by timestamp asc, name asc
+'''
 
-def run_query(client: LogsQueryClient, resource_id: str, query_template: str, days: int, **extra) -> None:
+DEP_ERROR_QUERY = '''
+dependencies
+| where timestamp > ago({days}d)
+| search "exception" or "error" or "fail"
+| summarize hits = count() by bin(timestamp, 1h)
+| order by timestamp asc
+'''
+
+DEP_ERROR_BREAKDOWN_QUERY = '''
+dependencies
+| where timestamp > ago({days}d)
+| search "exception" or "error" or "fail"
+| summarize hits = count() by name
+| top {top} by hits
+'''
+
+
+def run_query(client: LogsQueryClient, resource_id: str, query_template: str, days: int, tables: list[str] | None = None, table_overrides: dict | None = None, **extra) -> None:
+    """Run the provided query template against one or more tables.
+
+    The query_template is expected to start with the table name `traces` which
+    will be replaced for each requested table (e.g. `dependencies`). This keeps
+    the same logical query but runs it against both `traces` and `dependencies`.
+    """
+    if tables is None:
+        tables = ["traces"]
+
     timespan = timedelta(days=days)
-    formatted = query_template.format(days=days, **extra)
-    result = client.query_resource(resource_id, formatted, timespan=timespan)
 
-    if result.status != "Success":
-        print("Query failed:", result.error)
-        return
-
-    for table in result.tables:
-        if not table.rows:
-            print("No rows returned for table", table.name)
+    for table_name in tables:
+        # If querying the dependencies table, always use a dependency-safe
+        # template. This avoids sending traces-specific queries that reference
+        # columns like `message` or `severityLevel` which don't exist on
+        # `dependencies` (causing semantic errors).
+        if table_name == "dependencies":
+            # Prefer an explicit override if provided
+            if table_overrides and table_name in table_overrides:
+                formatted = table_overrides[table_name].format(days=days, **extra)
+            else:
+                # Map the generic template to the matching dependency template
+                if query_template is INTENT_QUERY or "CLUResult" in query_template or "intent=" in query_template:
+                    formatted = DEP_INTENT_QUERY.format(days=days, **extra)
+                elif query_template is ERROR_BREAKDOWN_QUERY or "severityLevel" in query_template or "by message" in query_template:
+                    formatted = DEP_ERROR_BREAKDOWN_QUERY.format(days=days, **extra)
+                else:
+                    # Default to the error-time series template
+                    formatted = DEP_ERROR_QUERY.format(days=days, **extra)
+        else:
+            # Non-dependencies: replace only the first occurrence of 'traces'
+            # so other occurrences (if any) in the query text aren't accidentally changed.
+            formatted = query_template.replace("traces", table_name, 1).format(days=days, **extra)
+        print(f"=== Results from table: {table_name} ===")
+        try:
+            result = client.query_resource(resource_id, formatted, timespan=timespan)
+        except Exception as e:
+            # Print a concise error and continue to the next table
+            print("Query failed for table", table_name, "->", repr(e))
             continue
 
-        headers = [col.name for col in table.columns]
-        print(" | ".join(headers))
-        print("-" * 60)
-        for row in table.rows:
-            print(" | ".join(str(value) for value in row))
+        if result.status != "Success":
+            print("Query failed:", result.error)
+            continue
+
+        any_rows = False
+        for table in result.tables:
+            if not table.rows:
+                print("No rows returned for table", table.name)
+                continue
+
+            any_rows = True
+            headers = [col.name for col in table.columns]
+            print(" | ".join(headers))
+            print("-" * 60)
+            for row in table.rows:
+                print(" | ".join(str(value) for value in row))
+            print()
+
+        if not any_rows:
+            print("(no results)")
         print()
 
 
@@ -95,13 +166,36 @@ def main() -> None:
 
     if args.query == "intents":
         print("Intents over time (per hour):")
-        run_query(client, resource_id, INTENT_QUERY, args.days)
+        # Run against both traces and dependencies to capture spans mapped to dependencies
+        run_query(
+            client,
+            resource_id,
+            INTENT_QUERY,
+            args.days,
+            tables=["traces", "dependencies"],
+            table_overrides={"dependencies": DEP_INTENT_QUERY},
+        )
     elif args.query == "errors":
         print("Errors over time (per hour):")
-        run_query(client, resource_id, ERROR_QUERY, args.days)
+        run_query(
+            client,
+            resource_id,
+            ERROR_QUERY,
+            args.days,
+            tables=["traces", "dependencies"],
+            table_overrides={"dependencies": DEP_ERROR_QUERY},
+        )
     else:
         print(f"Top {args.top} errors over {args.days} days:")
-        run_query(client, resource_id, ERROR_BREAKDOWN_QUERY, args.days, top=args.top)
+        run_query(
+            client,
+            resource_id,
+            ERROR_BREAKDOWN_QUERY,
+            args.days,
+            tables=["traces", "dependencies"],
+            table_overrides={"dependencies": DEP_ERROR_BREAKDOWN_QUERY},
+            top=args.top,
+        )
 
 
 if __name__ == "__main__":

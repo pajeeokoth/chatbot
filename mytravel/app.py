@@ -15,6 +15,7 @@ load_dotenv(DOTENV_PATH, override=True)
 
 # In-memory error log buffer
 ERROR_LOG_BUFFER = deque(maxlen=50)
+_otel_tracer = None
 
 def _normalize_env_aliases() -> None:
     """Normalize lowercase env var aliases to uppercase."""
@@ -329,10 +330,43 @@ async def debug_clu(request: web.Request) -> web.Response:
                     detail["content_type"] = ct
         except Exception:
             pass
-        
+        # If we have a HTTP response, try a quick endpoint probe to capture
+        # the remote content-type and a short body snippet. This helps when
+        # the service returns text/plain or HTML (usually indicates a wrong
+        # endpoint or an unexpected gateway response).
+        try:
+            import aiohttp
+            probe = {}
+            ep_check = endpoint
+            if not ep_check.startswith(("http://", "https://")):
+                ep_check = "https://" + ep_check
+            async def _probe():
+                async with aiohttp.ClientSession() as session:
+                    headers = {"Ocp-Apim-Subscription-Key": api_key} if api_key else {}
+                    try:
+                        async with session.get(ep_check, headers=headers, timeout=5) as r:
+                            probe_ct = r.headers.get("content-type")
+                            probe_text = await r.text()
+                            probe.update({"status": r.status, "content_type": probe_ct, "body_snippet": probe_text[:1000]})
+                    except Exception as _inner:
+                        probe.update({"error": str(_inner)})
+            import asyncio
+            try:
+                asyncio.get_running_loop()
+                # if we're already inside an event loop, create a task and await it
+                await _probe()
+            except RuntimeError:
+                # no running loop, run directly
+                asyncio.run(_probe())
+            if probe:
+                detail["endpoint_check"] = probe
+        except Exception:
+            # best-effort; don't let diagnostics break the CLU error path
+            pass
+
         if "Cannot deserialize content-type" in detail.get("error", ""):
             detail["hint"] = "CLU endpoint may be wrong. Use '<name>.cognitiveservices.azure.com' (no path)."
-        
+
         warns = _clu_config_warnings()
         if warns:
             detail["config_warnings"] = warns
@@ -378,6 +412,62 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger().addHandler(BufferHandler())
 
 
+# OpenTelemetry + Azure Monitor exporter (optional, enabled when connection string present)
+def _setup_opentelemetry():
+    global _otel_tracer
+    conn = os.getenv('APPLICATIONINSIGHTS_CONNECTION_STRING') or os.getenv('APPINSIGHTS_CONNECTION_STRING')
+    if not conn:
+        logging.info('No Application Insights connection string found; skipping OpenTelemetry setup')
+        return
+
+    try:
+        from opentelemetry import trace
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from azure.monitor.opentelemetry.exporter import AzureMonitorTraceExporter
+
+        # Reduce noisy transient network warnings from the Azure exporter
+        # (OneSettings dynamic configuration fetch). These are non-fatal
+        # but clutter logs in restricted or offline environments.
+        try:
+            logging.getLogger('azure.monitor.opentelemetry.exporter._configuration').setLevel(logging.ERROR)
+            logging.getLogger('azure.monitor.opentelemetry.exporter._configuration._utils').setLevel(logging.ERROR)
+            logging.getLogger('urllib3.connectionpool').setLevel(logging.ERROR)
+        except Exception:
+            pass
+
+        # Traces (primary)
+        resource = Resource.create({"service.name": "mytravel"})
+        tp = TracerProvider(resource=resource)
+        trace.set_tracer_provider(tp)
+        trace_exporter = AzureMonitorTraceExporter(connection_string=conn)
+        tp.add_span_processor(BatchSpanProcessor(trace_exporter))
+        _otel_tracer = trace.get_tracer("chat-eval")
+    except Exception as e:
+        logging.warning('OpenTelemetry setup failed: %s', e)
+
+def log_chat_evaluation(user_id: str, message: str, response: str, evaluation: dict):
+    """Log evaluation of a chat response to Azure Application Insights via OpenTelemetry."""
+    tracer = globals().get('_otel_tracer', None)
+    logger = logging.getLogger('chat-eval')
+    if tracer is None:
+        logger.info(f"[chat-eval] {user_id}: {message!r} => {response!r} | eval: {evaluation}")
+        return
+    with tracer.start_as_current_span("chat_response_evaluation") as span:
+        span.set_attribute("user_id", user_id)
+        span.set_attribute("user_message", message)
+        span.set_attribute("bot_response", response)
+        for k, v in evaluation.items():
+            span.set_attribute(f"eval_{k}", v)
+        logger.info(f"[chat-eval] {user_id}: {message!r} => {response!r} | eval: {evaluation}")
+
+
+
+# initialize OpenTelemetry if possible
+_setup_opentelemetry()
+
+
 async def serve_favicon(request: web.Request) -> web.Response:
     """Serve favicon.ico or transparent fallback."""
     icon_path = Path(__file__).parent / "static" / "favicon.ico"
@@ -395,6 +485,21 @@ async def catch_all(request: web.Request) -> web.Response:
     if request.method in ("GET", "HEAD"):
         return await serve_index(request)
     return web.Response(text="OK")
+
+
+async def telemetry_test(request: web.Request) -> web.Response:
+    """Emit a short OpenTelemetry span and a log entry for testing ingestion."""
+    try:
+        from opentelemetry import trace
+        logger = logging.getLogger('telemetry-test')
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span('telemetry_test_span') as span:
+            span.set_attribute('test', True)
+            logger.info('telemetry-test: sending test log entry')
+        return web.Response(text='Telemetry test emitted')
+    except Exception as e:
+        logging.warning('Telemetry test failed: %s', e)
+        return web.Response(status=500, text=f'Telemetry test failed: {e}')
 
 
 # Create app and register routes
@@ -415,6 +520,7 @@ def create_app() -> web.Application:
     app.router.add_get("/logs", logs_info)
     app.router.add_get("/health", health)
     app.router.add_get("/debug-clu", debug_clu)
+    app.router.add_get("/telemetry-test", telemetry_test)
     app.router.add_route("*", "/{tail:.*}", catch_all)
 
     return app
