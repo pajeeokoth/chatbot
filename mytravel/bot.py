@@ -33,7 +33,7 @@ class TravelBot(ActivityHandler):
             return
         endpoint = os.getenv("CLU_ENDPOINT", "")
         if not endpoint.startswith("http://") and not endpoint.startswith("https://"):
-            endpoint = "https://" + endpoint
+            endpoint = "https://" + endpoint 
         try:
             self.clu_client = ConversationAnalysisClient(endpoint=endpoint, credential=AzureKeyCredential(os.getenv("CLU_API_KEY")))  # type: ignore[arg-type]
             self.clu_project = os.getenv("CLU_PROJECT_NAME")

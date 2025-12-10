@@ -184,7 +184,7 @@ Notes and alternatives:
 
 ## Alerts (Action Group + Scheduled Query Rules)
 
-I added an ARM template that creates an Action Group you can attach to alert rules. The template is at `azure/action_group_template.json`.
+Added an ARM template that creates an Action Group that can attach to alert rules. The template is at `azure/action_group_template.json`.
 
 To create alerts (scheduled log alerts) in the Portal:
 
@@ -220,9 +220,7 @@ traces
 | where count_ > 0
 ```
 
-3. Configure evaluation frequency and action group notifications in the alert rule.
 
-If you want, I can also create a template for the scheduled query alert rules themselves but that requires more precise parameters (scopes, evaluation frequency) so tell me the frequency and thresholds you prefer and I will produce the ARM/az CLI commands for those rules.
 
 ## Test with Emulator
 - Endpoint URL: `http://localhost:3978/api/messages`
