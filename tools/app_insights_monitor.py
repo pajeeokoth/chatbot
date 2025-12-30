@@ -60,7 +60,7 @@ customEvents
 | where tostring(customDimensions.type) == "clu"
 | extend confidence = todouble(customDimensions.confidence)
 | where isnotnull(confidence) and confidence < 0.8
-| summarize alerts = count() by week = startofweek(timestamp)
+| summarize alerts = count() by week = bin(timestamp, 7d)
 | order by week asc
 '''
 
@@ -132,7 +132,7 @@ def main() -> None:
     parser.add_argument("--resource-id", help="Azure resource ID for the Application Insights resource.")
     parser.add_argument("--days", type=int, default=7, help="Timespan in days to query (default 7).")
     parser.add_argument("--top", type=int, default=10, help="Limit for error breakdown query.")
-    parser.add_argument("query", choices=["intents", "weekly-alerts","errors", "error-breakdown"], nargs="?", default="intents")
+    parser.add_argument("query", choices=["intents", "alerts", "errors", "error-breakdown"], nargs="?", default="intents")
 
     args = parser.parse_args()
 
@@ -145,7 +145,7 @@ def main() -> None:
     if args.query == "intents":
         print("Intents over time (per hour):")
         run_query(client, resource_id, INTENT_QUERY, args.days)
-    elif args.query == "weekly-alerts":
+    elif args.query == "alerts":
         print(f"Weekly low-confidence alerts over {args.days} days:")
         run_query(client, resource_id, WEEKLY_ALERTS_QUERY, args.days)
     elif args.query == "errors":

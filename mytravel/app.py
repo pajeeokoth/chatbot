@@ -365,7 +365,7 @@ async def debug_clu(request: web.Request) -> web.Response:
         payload = {"query": text, "topIntent": top_intent, "confidence": conf, "entities": entities}
         # send lightweight telemetry about this debug call (no-op if App Insights not configured)
         try:
-            props = {"query": text[:200], "topIntent": str(top_intent), "confidence": str(conf)}
+            props = {"query": text[:200], "topIntent": str(top_intent), "confidence": conf}#"confidence": str(conf)}
             track_event("debug_clu.call", props)
             logging.info("AppInsights: debug_clu.call tracked: %s", props)
         except Exception:
