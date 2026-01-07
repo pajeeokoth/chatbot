@@ -9,13 +9,59 @@ from dotenv import load_dotenv
 from azure.identity import DefaultAzureCredential
 from azure.monitor.query import LogsQueryClient
 
+import os, logging
+try:
+    from applicationinsights import TelemetryClient
+except Exception:
+    TelemetryClient = None  # type: ignore
+
+def _get_tc():
+    ikey = os.getenv("APPINSIGHTS_INSTRUMENTATION_KEY") or os.getenv("APPLICATIONINSIGHTS_INSTRUMENTATION_KEY")
+    if not ikey:
+        logging.info("AppInsights: no instrumentation key found")
+        return None
+    if TelemetryClient is None:
+        logging.info("AppInsights: SDK not installed, skipping telemetry")
+        return None
+    try:
+        return TelemetryClient(ikey)
+    except Exception as exc:
+        logging.warning("AppInsights: TelemetryClient create failed: %s", exc)
+        return None
+
+def track_event(name: str, properties: dict | None = None, measurements: dict | None = None) -> bool:
+    tc = _get_tc()
+    if not tc:
+        logging.info("AppInsights: skipping track_event(%s) — no client", name)
+        return False
+    try:
+        tc.track_event(name, properties or {}, measurements or {})
+        tc.flush()
+        logging.info("AppInsights: track_event(%s) sent; props=%s", name, properties or {})
+        return True
+    except Exception as exc:
+        logging.warning("AppInsights: track_event(%s) failed: %s", name, exc)
+        return False
+
 INTENT_QUERY = '''
-traces
+customEvents
+| where name == "bot.response"
+| where tostring(customDimensions.type) == "clu"
+| extend confidence = todouble(customDimensions.confidence)
+| where isnotnull(confidence)
+| summarize AvgConfidence = avg(confidence) by bin(timestamp, 15m)
+| render timechart
+'''
+
+WEEKLY_ALERTS_QUERY = '''
+customEvents
 | where timestamp > ago({days}d)
-| where message has "CLUResult |"
-| parse message with * "intent=" intent " | confidence=" confidence " | entities=" entities
-| summarize hits = count() by bin(timestamp, 1h), intent
-| order by timestamp asc, intent asc
+| where name == "bot.response"
+| where tostring(customDimensions.type) == "clu"
+| extend confidence = todouble(customDimensions.confidence)
+| where isnotnull(confidence) and confidence < 0.8
+| summarize alerts = count() by week = bin(timestamp, 7d)
+| order by week asc
 '''
 
 ERROR_QUERY = '''
@@ -40,6 +86,7 @@ def run_query(client: LogsQueryClient, resource_id: str, query_template: str, da
     formatted = query_template.format(days=days, **extra)
     result = client.query_resource(resource_id, formatted, timespan=timespan)
 
+
     if result.status != "Success":
         print("Query failed:", result.error)
         return
@@ -48,8 +95,10 @@ def run_query(client: LogsQueryClient, resource_id: str, query_template: str, da
         if not table.rows:
             print("No rows returned for table", table.name)
             continue
+        print(table.columns)
 
-        headers = [col.name for col in table.columns]
+        headers = [col for col in table.columns]
+
         print(" | ".join(headers))
         print("-" * 60)
         for row in table.rows:
@@ -83,7 +132,7 @@ def main() -> None:
     parser.add_argument("--resource-id", help="Azure resource ID for the Application Insights resource.")
     parser.add_argument("--days", type=int, default=7, help="Timespan in days to query (default 7).")
     parser.add_argument("--top", type=int, default=10, help="Limit for error breakdown query.")
-    parser.add_argument("query", choices=["intents", "errors", "error-breakdown"], nargs="?", default="intents")
+    parser.add_argument("query", choices=["intents", "alerts", "errors", "error-breakdown"], nargs="?", default="intents")
 
     args = parser.parse_args()
 
@@ -96,6 +145,9 @@ def main() -> None:
     if args.query == "intents":
         print("Intents over time (per hour):")
         run_query(client, resource_id, INTENT_QUERY, args.days)
+    elif args.query == "alerts":
+        print(f"Weekly low-confidence alerts over {args.days} days:")
+        run_query(client, resource_id, WEEKLY_ALERTS_QUERY, args.days)
     elif args.query == "errors":
         print("Errors over time (per hour):")
         run_query(client, resource_id, ERROR_QUERY, args.days)

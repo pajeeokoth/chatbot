@@ -1,5 +1,6 @@
 """Slim aiohttp host for MyTravel Bot (CLU + Bot Framework)."""
 
+from __future__ import annotations
 import os, sys, logging, traceback, json
 from urllib.parse import urlparse
 from aiohttp import web
@@ -7,6 +8,12 @@ from pathlib import Path
 from dotenv import load_dotenv
 from collections import deque
 from datetime import datetime
+
+_repo_root = Path(__file__).resolve().parents[1]
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
+from tools.app_insights_monitor import track_event
 
 # Load environment variables
 DOTENV_PATH = Path(__file__).with_name(".env")
@@ -20,6 +27,7 @@ ERROR_LOG_BUFFER = deque(maxlen=50)
 # environment processing functions 
 # _normalize_env_aliases, _postprocess_env, _clu_config_warnings, _mask
 # -----------------------------
+
 
 def _normalize_env_aliases() -> None:
     """Normalize lowercase env var aliases to uppercase."""
@@ -156,10 +164,16 @@ async def handle_messages(request: web.Request) -> web.Response:
         return web.Response(text="Use POST with application/json to send a Bot Framework Activity.")
 
     global BOT_AVAILABLE, bot, adapter
+
     if not BOT_AVAILABLE:
         msg = ["Bot unavailable (imports failed).", "Install: pip install -r mytravel/requirements.txt", "Check /diagnostics for details."]
         if _IMPORT_ERROR:
             msg.append("Error:\n" + _IMPORT_ERROR[-800:])
+        # try to report the fact that bot was unavailable
+        try:
+            track_event("bot.unavailable", {"reason": "imports_failed"})
+        except Exception:
+            pass
         return web.Response(text="\n".join(msg))
 
     # Parse request body
@@ -230,7 +244,18 @@ async def handle_messages(request: web.Request) -> web.Response:
             ctx = SimpleTurnContext(activity)
             await bot.on_message_activity(ctx)
             reply = "\n".join(ctx._responses) if ctx._responses else "OK"
+
+            # classify and report response type to App Insights
+            try:
+                typ = "echo" if "(Echo)" in reply else ("clu" if "Intent:" in reply else "other")
+                track_event("bot.response", {"type": typ, "user_text": msg_text[:200], "reply": reply[:200]})
+                logging.info("AppInsights: bot.response tracked: type=%s", typ)
+            except Exception:
+                logging.error("AppInsights: bot.response tracking failed in direct handler")
+                pass
+
             return web.Response(status=200, text=reply)
+        
         except Exception as inner:
             logging.exception("Direct bot handler failed: %s", inner)
             return web.Response(status=200, text=f"Bot error: {str(inner)[:150]}")
@@ -338,7 +363,16 @@ async def debug_clu(request: web.Request) -> web.Response:
         entities = [{"category": e.get("category"), "text": e.get("text")} for e in pred.get("entities", [])]
         
         payload = {"query": text, "topIntent": top_intent, "confidence": conf, "entities": entities}
+        # send lightweight telemetry about this debug call (no-op if App Insights not configured)
+        try:
+            props = {"query": text[:200], "topIntent": str(top_intent), "confidence": conf}#"confidence": str(conf)}
+            track_event("debug_clu.call", props)
+            logging.info("AppInsights: debug_clu.call tracked: %s", props)
+        except Exception:
+            logging.error("AppInsights: debug_clu.call tracking failed in debug_clu")
+            pass
         return web.Response(text=json.dumps(payload, ensure_ascii=False), content_type="application/json")
+        
     except Exception as e:
         detail = {"error": str(e)}
         try:

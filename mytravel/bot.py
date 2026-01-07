@@ -17,6 +17,8 @@ except Exception:  # noqa: BLE001
     ConversationAnalysisClient = None  # type: ignore
     AzureKeyCredential = None  # type: ignore
 
+from tools.app_insights_monitor import track_event
+
 
 class TravelBot(ActivityHandler):
     def __init__(self) -> None:  # noqa: D401
@@ -69,15 +71,29 @@ class TravelBot(ActivityHandler):
             conf = next((i.get("confidenceScore") for i in intents if i.get("category") == top), None)
             ents = pred.get("entities", [])
             ent_fmt = ", ".join(f"{e.get('category')}='{e.get('text')}'" for e in ents)
+            
             msg = f"Intent: {top}"
             if conf is not None:
                 msg += f" | confidence={conf:.2f}"
             if ent_fmt:
                 msg += f" | entities={ent_fmt}"
             logging.info(f"Sending CLU response: {msg}")
+            # report to App Insights (best-effort)
+            try:
+                track_event("bot.response", {"type": "clu", "intent": top or "UNKNOWN", "confidence": str(conf or "")})
+                logging.info("AppInsights: bot.response tracked: intent=%s", top or "UNKNOWN")
+            except Exception:
+                logging.error("AppInsights: bot.response tracking failed")
+                raise
             await turn_context.send_activity(msg)
+
         except Exception as e:  # noqa: BLE001
             logging.warning("CLU error (fallback to echo): %s", e)
             response = f"(Echo) {text}\nCLU error: {str(e)[:120]}"
             logging.info(f"Sending error fallback: {response}")
+            try:
+                track_event("bot.response", {"type": "echo", "error": str(e)[:200]})
+            except Exception:
+                logging.error("AppInsights: bot.response tracking failed")
+                pass
             await turn_context.send_activity(response)

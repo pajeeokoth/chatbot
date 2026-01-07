@@ -18,3 +18,4 @@ python-dotenv==1.0.0
 requests==2.31.0
 azure-monitor-query>=1.1.0
 azure-identity>=1.16.0
+applicationinsights
